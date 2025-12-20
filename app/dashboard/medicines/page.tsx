@@ -724,7 +724,7 @@ export default function MedicinesPage() {
                 {(imagePreview || (editingMedicine && formData.image)) && (
                   <div className="mt-2 w-32 h-32 bg-[#dfedfb] rounded-lg overflow-hidden">
                     <Image
-                      src={imagePreview || getImageUrl(formData.image) || ''}
+                      src={imagePreview ? getImageUrl(imagePreview) : getImageUrl(formData.image) || ''}
                       alt="Preview"
                       width={128}
                       height={128}
