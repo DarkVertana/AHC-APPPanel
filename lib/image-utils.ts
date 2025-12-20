@@ -5,13 +5,24 @@
 /**
  * Gets the base URL for the application
  * Uses NEXT_PUBLIC_BASE_URL if set (useful for production deployments with custom domains or base paths)
+ * For server-side use, can extract from request URL
  * Returns empty string otherwise - Next.js will handle relative paths correctly
  */
-function getBaseUrl(): string {
-  // Check for environment variable (useful for production deployments)
+function getBaseUrl(requestUrl?: string): string {
+  // Check for environment variable first (useful for production deployments)
   // This allows setting an explicit base URL if needed (e.g., for CDN, reverse proxy, or base path)
   if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_BASE_URL) {
     return process.env.NEXT_PUBLIC_BASE_URL.replace(/\/$/, ''); // Remove trailing slash
+  }
+  
+  // If request URL is provided (server-side), extract origin from it
+  if (requestUrl) {
+    try {
+      const url = new URL(requestUrl);
+      return `${url.protocol}//${url.host}`;
+    } catch (e) {
+      // Invalid URL, continue
+    }
   }
   
   // Return empty string - Next.js will handle relative paths correctly
@@ -23,8 +34,16 @@ function getBaseUrl(): string {
  * Gets the full URL for an image path
  * Handles both relative paths (from public folder) and absolute URLs
  * In production, ensures proper URL resolution for static assets
+ * 
+ * @param imagePath - The image path (relative or absolute)
+ * @param requestUrl - Optional request URL for server-side absolute URL generation
+ * @param forceAbsolute - If true, always return absolute URL (useful for mobile API)
  */
-export function getImageUrl(imagePath: string | null | undefined): string {
+export function getImageUrl(
+  imagePath: string | null | undefined, 
+  requestUrl?: string,
+  forceAbsolute: boolean = false
+): string {
   if (!imagePath) {
     return '';
   }
@@ -47,11 +66,25 @@ export function getImageUrl(imagePath: string | null | undefined): string {
   // Remove any double slashes (except at the start)
   normalizedPath = normalizedPath.replace(/([^:]\/)\/+/g, '$1');
   
-  // If NEXT_PUBLIC_BASE_URL is explicitly set, use it to create absolute URL
-  // This is useful for production deployments behind reverse proxies or with base paths
-  const baseUrl = getBaseUrl();
-  if (baseUrl) {
-    return `${baseUrl}${normalizedPath}`;
+  // Get base URL (from env var or request URL)
+  const baseUrl = getBaseUrl(requestUrl);
+  
+  // If forceAbsolute is true (for mobile API) or baseUrl is set, return absolute URL
+  if (forceAbsolute || baseUrl) {
+    // If we have a base URL, use it
+    if (baseUrl) {
+      return `${baseUrl}${normalizedPath}`;
+    }
+    // If forceAbsolute but no baseUrl, try to get from request or use localhost
+    if (forceAbsolute && requestUrl) {
+      try {
+        const url = new URL(requestUrl);
+        return `${url.protocol}//${url.host}${normalizedPath}`;
+      } catch (e) {
+        // Fallback to relative path if URL parsing fails
+        return normalizedPath;
+      }
+    }
   }
   
   // Return the normalized relative path

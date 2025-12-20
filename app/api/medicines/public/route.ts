@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
+import { getImageUrl } from '@/lib/image-utils';
 
 /**
  * Public Medicine API Endpoint for Mobile App
@@ -75,6 +76,9 @@ export async function GET(request: NextRequest) {
         );
       }
 
+      // Get the request URL for generating absolute image URLs
+      const requestUrl = request.url;
+      
       return NextResponse.json({
         success: true,
         medicine: {
@@ -84,12 +88,12 @@ export async function GET(request: NextRequest) {
             id: medicine.category.id,
             title: medicine.category.title,
             tagline: medicine.category.tagline,
-            icon: medicine.category.icon,
+            icon: getImageUrl(medicine.category.icon, requestUrl, true), // Force absolute URL for mobile
           },
           title: medicine.title,
           tagline: medicine.tagline,
           description: medicine.description,
-          image: medicine.image,
+          image: getImageUrl(medicine.image, requestUrl, true), // Force absolute URL for mobile
           url: medicine.url,
           createdAt: medicine.createdAt.toISOString(),
           updatedAt: medicine.updatedAt.toISOString(),
@@ -138,6 +142,9 @@ export async function GET(request: NextRequest) {
       prisma.medicine.count({ where }),
     ]);
 
+    // Get the request URL for generating absolute image URLs
+    const requestUrl = request.url;
+    
     return NextResponse.json({
       success: true,
       medicines: medicines.map(medicine => ({
@@ -147,12 +154,12 @@ export async function GET(request: NextRequest) {
           id: medicine.category.id,
           title: medicine.category.title,
           tagline: medicine.category.tagline,
-          icon: medicine.category.icon,
+          icon: getImageUrl(medicine.category.icon, requestUrl, true), // Force absolute URL for mobile
         },
         title: medicine.title,
         tagline: medicine.tagline,
         description: medicine.description,
-        image: medicine.image,
+        image: getImageUrl(medicine.image, requestUrl, true), // Force absolute URL for mobile
         url: medicine.url,
         createdAt: medicine.createdAt.toISOString(),
         updatedAt: medicine.updatedAt.toISOString(),

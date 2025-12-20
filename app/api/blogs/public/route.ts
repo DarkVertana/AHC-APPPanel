@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
+import { getImageUrl } from '@/lib/image-utils';
 
 /**
  * Public Blog API Endpoint for Mobile App
@@ -65,6 +66,9 @@ export async function GET(request: NextRequest) {
         );
       }
 
+      // Get the request URL for generating absolute image URLs
+      const requestUrl = request.url;
+      
       return NextResponse.json({
         success: true,
         blog: {
@@ -73,7 +77,7 @@ export async function GET(request: NextRequest) {
           tagline: blog.tagline,
           description: blog.description,
           tags: blog.tags,
-          featuredImage: blog.featuredImage,
+          featuredImage: getImageUrl(blog.featuredImage, requestUrl, true), // Force absolute URL for mobile
           createdAt: blog.createdAt.toISOString(),
           updatedAt: blog.updatedAt.toISOString(),
         },
@@ -119,6 +123,9 @@ export async function GET(request: NextRequest) {
       prisma.blog.count({ where }),
     ]);
 
+    // Get the request URL for generating absolute image URLs
+    const requestUrl = request.url;
+    
     return NextResponse.json({
       success: true,
       blogs: blogs.map(blog => ({
@@ -127,7 +134,7 @@ export async function GET(request: NextRequest) {
         tagline: blog.tagline,
         description: blog.description,
         tags: blog.tags,
-        featuredImage: blog.featuredImage,
+        featuredImage: getImageUrl(blog.featuredImage, requestUrl, true), // Force absolute URL for mobile
         createdAt: blog.createdAt.toISOString(),
         updatedAt: blog.updatedAt.toISOString(),
       })),
