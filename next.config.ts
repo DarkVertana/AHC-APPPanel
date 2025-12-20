@@ -6,9 +6,9 @@ const nextConfig: NextConfig = {
     remotePatterns: [],
     // Allow all image formats
     formats: ['image/avif', 'image/webp'],
-    // Disable image optimization if causing issues in production
-    // Set to true if you want to enable Next.js image optimization
-    unoptimized: process.env.NODE_ENV === 'production' ? false : false,
+    // Disable image optimization to ensure images are served directly from public folder
+    // This prevents issues with image loading in production
+    unoptimized: true,
   },
 };
 
