@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
+import { getImageUrl } from '@/lib/image-utils';
 
 type Category = {
   id: number;
@@ -419,11 +420,12 @@ export default function MedicinesPage() {
                       <div className="w-12 h-12 bg-[#dfedfb] rounded-lg overflow-hidden flex items-center justify-center flex-shrink-0">
                         {medicine.image ? (
                           <Image
-                            src={medicine.image}
+                            src={getImageUrl(medicine.image)}
                             alt={medicine.title}
                             width={48}
                             height={48}
                             className="object-cover w-full h-full"
+                            unoptimized
                             onError={(e) => {
                               const target = e.target as HTMLImageElement;
                               target.style.display = 'none';
@@ -669,11 +671,12 @@ export default function MedicinesPage() {
                 {(imagePreview || (editingMedicine && formData.image)) && (
                   <div className="mt-2 w-32 h-32 bg-[#dfedfb] rounded-lg overflow-hidden">
                     <Image
-                      src={imagePreview || formData.image || ''}
+                      src={imagePreview || getImageUrl(formData.image) || ''}
                       alt="Preview"
                       width={128}
                       height={128}
                       className="object-cover w-full h-full"
+                      unoptimized
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
                         target.style.display = 'none';

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
 import RichTextEditor from '@/app/components/RichTextEditor';
+import { getImageUrl } from '@/lib/image-utils';
 
 export default function AddBlogPage() {
   const router = useRouter();
@@ -243,11 +244,12 @@ export default function AddBlogPage() {
           {imagePreview && (
             <div className="mt-2 w-32 h-32 bg-[#dfedfb] rounded-lg overflow-hidden">
               <Image
-                src={imagePreview}
+                src={getImageUrl(imagePreview)}
                 alt="Preview"
                 width={128}
                 height={128}
                 className="object-cover w-full h-full"
+                unoptimized
                 onError={(e) => {
                   const target = e.target as HTMLImageElement;
                   target.style.display = 'none';
