@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+test-woocommerce-api.ps1
+test-woocommerce-api.sh
+CURL_TEST_COMMANDS.md
 
 # vercel
 .vercel

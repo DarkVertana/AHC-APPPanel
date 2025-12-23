@@ -104,8 +104,8 @@ export async function GET(request: NextRequest) {
       'Accept': 'application/json',
     };
 
-    // First, try to get customer by email to get customer ID
-    // This ensures we can fetch subscriptions reliably
+    // Try to get customer by email to get customer ID (optimized with timeout)
+    // If this fails, we'll fetch all subscriptions and filter by email
     let customerId: number | null = null;
     
     try {
@@ -113,13 +113,19 @@ export async function GET(request: NextRequest) {
       customersUrl.searchParams.append('email', normalizedEmail);
       customersUrl.searchParams.append('per_page', '1');
 
+      // Use AbortController for timeout to avoid hanging
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+
       const customersResponse = await fetch(customersUrl.toString(), {
         method: 'GET',
         headers: authHeaders,
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
+
       if (customersResponse.ok) {
-        // Check if response is JSON before parsing
         const customersContentType = customersResponse.headers.get('content-type');
         const isCustomersJson = customersContentType && customersContentType.includes('application/json');
         
@@ -129,29 +135,17 @@ export async function GET(request: NextRequest) {
             const customersArray = Array.isArray(customers) ? customers : [customers];
             if (customersArray.length > 0 && customersArray[0].id) {
               customerId = parseInt(customersArray[0].id);
-              console.log(`Found customer ID ${customerId} for email ${normalizedEmail}`);
-            } else {
-              console.log(`No customer found for email ${normalizedEmail}, will filter subscriptions by email`);
             }
           } catch (parseError) {
-            console.error('Failed to parse customers response:', parseError);
-            // Continue without customer ID - will filter by email
-          }
-        } else {
-          // If customers endpoint returns HTML, log it but continue
-          const errorText = await customersResponse.text();
-          console.warn('WooCommerce customers API returned non-JSON response. Will filter subscriptions by email.');
-          if (process.env.NODE_ENV === 'development') {
-            console.log('Response preview:', errorText.substring(0, 200));
+            // Continue without customer ID
           }
         }
-      } else {
-        // Customer lookup failed, but continue - we'll filter by email
-        console.log(`Customer lookup returned ${customersResponse.status}, will filter subscriptions by email`);
       }
     } catch (customerError) {
-      console.error('Error fetching customer:', customerError);
-      // Continue without customer ID - will filter by email
+      // Timeout or error - continue without customer ID, will fetch all and filter
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Customer lookup skipped or failed, will fetch all subscriptions and filter by email');
+      }
     }
 
     // Fetch subscriptions from WooCommerce API
@@ -338,12 +332,26 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Ensure all subscriptions include all status information
+    // Include all status fields: status, date_created, date_modified, next_payment_date, etc.
+    const enrichedSubscriptions = subscriptionsArray.map((sub: any) => ({
+      ...sub,
+      // Ensure all status-related fields are included
+      status: sub.status || 'unknown',
+      date_created: sub.date_created || sub.date_created_gmt || null,
+      date_modified: sub.date_modified || sub.date_modified_gmt || null,
+      next_payment_date: sub.next_payment_date || sub.next_payment_date_gmt || null,
+      end_date: sub.end_date || sub.end_date_gmt || null,
+      trial_end_date: sub.trial_end_date || sub.trial_end_date_gmt || null,
+      // Include all subscription statuses: active, on-hold, cancelled, expired, pending-cancel, etc.
+    }));
+
     return NextResponse.json({
       success: true,
       email: normalizedEmail,
       customerId: customerId || null,
-      count: subscriptionsArray.length,
-      subscriptions: subscriptionsArray,
+      count: enrichedSubscriptions.length,
+      subscriptions: enrichedSubscriptions,
     });
   } catch (error) {
     console.error('Get WooCommerce subscriptions error:', error);

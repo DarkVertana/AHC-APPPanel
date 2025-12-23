@@ -109,61 +109,80 @@ export async function GET(request: NextRequest) {
       'Accept': 'application/json',
     };
 
-    // First, try to get customer by email to get customer ID
-    // This ensures we can fetch orders reliably
-    const customersUrl = new URL(`${apiUrl}/customers`);
-    customersUrl.searchParams.append('email', normalizedEmail);
-    customersUrl.searchParams.append('per_page', '1');
-
-    const customersResponse = await fetch(customersUrl.toString(), {
-      method: 'GET',
-      headers: authHeaders,
-    });
-
+    // Try to get customer by email to get customer ID (optimized with timeout)
+    // If this fails, we'll fetch all orders and filter by email
     let customerId: number | null = null;
+    
+    try {
+      const customersUrl = new URL(`${apiUrl}/customers`);
+      customersUrl.searchParams.append('email', normalizedEmail);
+      customersUrl.searchParams.append('per_page', '1');
 
-    if (customersResponse.ok) {
-      // Check if response is JSON before parsing
-      const customersContentType = customersResponse.headers.get('content-type');
-      const isCustomersJson = customersContentType && customersContentType.includes('application/json');
-      
-      if (isCustomersJson) {
-        try {
-          const customers = await customersResponse.json();
-          const customersArray = Array.isArray(customers) ? customers : [customers];
-          if (customersArray.length > 0 && customersArray[0].id) {
-            customerId = customersArray[0].id;
+      // Use AbortController for timeout to avoid hanging
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+
+      const customersResponse = await fetch(customersUrl.toString(), {
+        method: 'GET',
+        headers: authHeaders,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (customersResponse.ok) {
+        const customersContentType = customersResponse.headers.get('content-type');
+        const isCustomersJson = customersContentType && customersContentType.includes('application/json');
+        
+        if (isCustomersJson) {
+          try {
+            const customers = await customersResponse.json();
+            const customersArray = Array.isArray(customers) ? customers : [customers];
+            if (customersArray.length > 0 && customersArray[0].id) {
+              customerId = parseInt(customersArray[0].id);
+            }
+          } catch (parseError) {
+            // Continue without customer ID
           }
-        } catch (parseError) {
-          console.error('Failed to parse customers response:', parseError);
-          // Continue without customer ID - will use email fallback
         }
-      } else {
-        // If customers endpoint returns HTML, log it but continue
-        const errorText = await customersResponse.text();
-        console.warn('WooCommerce customers API returned non-JSON response. Will use email for orders lookup.');
-        if (process.env.NODE_ENV === 'development') {
-          console.log('Response preview:', errorText.substring(0, 200));
-        }
-        // If we get HTML, it might mean the API URL is wrong - but continue anyway
+      }
+    } catch (customerError) {
+      // Timeout or error - continue without customer ID, will fetch all and filter
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Customer lookup skipped or failed, will fetch all orders and filter by email');
       }
     }
 
     // Fetch orders from WooCommerce API
-    // Use customer ID if available, otherwise try with email
-    const ordersUrl = new URL(`${apiUrl}/orders`);
+    // WooCommerce orders API only accepts customer ID, not email
+    // If we don't have customer ID, fetch all orders and filter by email
+    let ordersUrl = new URL(`${apiUrl}/orders`);
+    
+    // Only use customer ID if we have it, otherwise fetch all and filter by email
     if (customerId) {
       ordersUrl.searchParams.append('customer', customerId.toString());
-    } else {
-      // Fallback: try with email (some WooCommerce versions support this)
-      ordersUrl.searchParams.append('customer', normalizedEmail);
     }
+    // Don't filter by status - include all statuses so app can show all orders like website
     ordersUrl.searchParams.append('per_page', '100'); // Get up to 100 orders
 
-    const woocommerceResponse = await fetch(ordersUrl.toString(), {
+    let woocommerceResponse = await fetch(ordersUrl.toString(), {
       method: 'GET',
       headers: authHeaders,
     });
+
+    // If we have customerId but got no orders or error, try fetching all and filter by email
+    // This handles cases where customer ID lookup was incorrect
+    if (customerId && (!woocommerceResponse.ok || woocommerceResponse.status === 404)) {
+      console.log('No orders found with customer ID, trying to fetch all and filter by email');
+      const allOrdersUrl = new URL(`${apiUrl}/orders`);
+      allOrdersUrl.searchParams.append('per_page', '100');
+      
+      woocommerceResponse = await fetch(allOrdersUrl.toString(), {
+        method: 'GET',
+        headers: authHeaders,
+      });
+      customerId = null; // Mark that we're fetching all orders
+    }
 
     // Check if response is JSON
     const contentType = woocommerceResponse.headers.get('content-type');
@@ -247,7 +266,20 @@ export async function GET(request: NextRequest) {
     }
 
     // Handle case where WooCommerce returns a single order object instead of array
-    const ordersArray = Array.isArray(orders) ? orders : [orders];
+    let ordersArray = Array.isArray(orders) ? orders : [orders];
+
+    // If we don't have customerId or fetched all orders, filter by email
+    // This ensures we only return orders for the specified email
+    if (!customerId && ordersArray.length > 0) {
+      ordersArray = ordersArray.filter((order: any) => {
+        const orderEmail = (
+          order.billing?.email?.toLowerCase().trim() ||
+          order.customer_email?.toLowerCase().trim() ||
+          ''
+        );
+        return orderEmail === normalizedEmail;
+      });
+    }
 
     // Enrich orders with product details (name, quantity, image)
     const enrichedOrders = await Promise.all(
@@ -313,9 +345,17 @@ export async function GET(request: NextRequest) {
           })
         );
 
+        // Return order with all status information included
+        // Include all status fields: status, date_created, date_modified, date_completed, etc.
         return {
           ...order,
           items: enrichedItems,
+          // Ensure all status-related fields are included
+          status: order.status || 'unknown',
+          date_created: order.date_created || order.date_created_gmt || null,
+          date_modified: order.date_modified || order.date_modified_gmt || null,
+          date_completed: order.date_completed || order.date_completed_gmt || null,
+          date_paid: order.date_paid || order.date_paid_gmt || null,
         };
       })
     );

@@ -112,97 +112,205 @@ export async function GET(request: NextRequest) {
       'Accept': 'application/json',
     };
 
-    // Get customer by email
-    const customersUrl = new URL(`${apiUrl}/customers`);
-    customersUrl.searchParams.append('email', normalizedEmail);
-    customersUrl.searchParams.append('per_page', '1');
-
-    const customersResponse = await fetch(customersUrl.toString(), {
-      method: 'GET',
-      headers: authHeaders,
-    });
-
-    // Check if response is JSON
-    const customersContentType = customersResponse.headers.get('content-type');
-    const isCustomersJson = customersContentType && customersContentType.includes('application/json');
-
-    if (!customersResponse.ok) {
-      const errorText = await customersResponse.text();
-      
-      if (!isCustomersJson && errorText.includes('<!DOCTYPE')) {
-        return NextResponse.json(
-          {
-            error: 'WooCommerce API returned an HTML page instead of JSON',
-            details: process.env.NODE_ENV === 'development' 
-              ? 'Please check your WooCommerce API URL and credentials.' 
-              : undefined,
-          },
-          { status: 500 }
-        );
-      }
-
-      if (customersResponse.status === 404) {
-        return NextResponse.json(
-          { error: 'Customer not found' },
-          { status: 404 }
-        );
-      }
-
-      return NextResponse.json(
-        {
-          error: 'Failed to fetch customer from WooCommerce',
-          details: process.env.NODE_ENV === 'development' 
-            ? `WooCommerce API returned ${customersResponse.status}: ${customersResponse.statusText}` 
-            : undefined,
-        },
-        { status: customersResponse.status || 500 }
-      );
-    }
-
-    // Parse customer data
-    let customers;
-    try {
-      const customersText = await customersResponse.text();
-      if (!isCustomersJson) {
-        return NextResponse.json(
-          {
-            error: 'WooCommerce API returned an invalid response format',
-            details: process.env.NODE_ENV === 'development' 
-              ? 'The API returned HTML or non-JSON content.' 
-              : undefined,
-          },
-          { status: 500 }
-        );
-      }
-      customers = JSON.parse(customersText);
-    } catch (parseError) {
-      console.error('Failed to parse customers response:', parseError);
-      return NextResponse.json(
-        {
-          error: 'Failed to parse response from WooCommerce API',
-          details: process.env.NODE_ENV === 'development' && parseError instanceof Error
-            ? parseError.message
-            : undefined,
-        },
-        { status: 500 }
-      );
-    }
-
-    const customersArray = Array.isArray(customers) ? customers : [customers];
+    // Try to get customer by email - similar to orders/subscriptions approach
+    let customerId: number | null = null;
+    let customer: any = null;
     
-    if (customersArray.length === 0) {
-      return NextResponse.json(
-        { error: 'Customer not found' },
-        { status: 404 }
-      );
+    try {
+      const customersUrl = new URL(`${apiUrl}/customers`);
+      customersUrl.searchParams.append('email', normalizedEmail);
+      customersUrl.searchParams.append('per_page', '1');
+
+      const customersResponse = await fetch(customersUrl.toString(), {
+        method: 'GET',
+        headers: authHeaders,
+      });
+
+      // Check if response is JSON
+      const customersContentType = customersResponse.headers.get('content-type');
+      const isCustomersJson = customersContentType && customersContentType.includes('application/json');
+
+      if (customersResponse.ok && isCustomersJson) {
+        try {
+          const customersText = await customersResponse.text();
+          const customers = JSON.parse(customersText);
+          const customersArray = Array.isArray(customers) ? customers : [customers];
+          
+          if (customersArray.length > 0 && customersArray[0].id) {
+            customer = customersArray[0];
+            customerId = parseInt(customersArray[0].id);
+            console.log(`Found customer ID ${customerId} for email ${normalizedEmail}`);
+          } else {
+            console.log(`No customer found for email ${normalizedEmail}, will try to find from orders/subscriptions`);
+          }
+        } catch (parseError) {
+          console.error('Failed to parse customers response:', parseError);
+          // Continue to try alternative methods
+        }
+      } else {
+        console.log(`Customer lookup returned ${customersResponse.status}, will try to find from orders/subscriptions`);
+      }
+    } catch (customerError) {
+      console.error('Error fetching customer:', customerError);
+      // Continue to try alternative methods
     }
 
-    const customer = customersArray[0];
+    // If customer not found, try to find customer ID from orders or subscriptions
+    if (!customer) {
+      console.log('Trying to find customer ID from orders...');
+      
+      try {
+        // Try to get customer ID from orders
+        const ordersUrl = new URL(`${apiUrl}/orders`);
+        ordersUrl.searchParams.append('per_page', '10'); // Get a few orders to find customer
+        
+        const ordersResponse = await fetch(ordersUrl.toString(), {
+          method: 'GET',
+          headers: authHeaders,
+        });
 
-    // Extract billing address
+        if (ordersResponse.ok) {
+          const ordersContentType = ordersResponse.headers.get('content-type');
+          const isOrdersJson = ordersContentType && ordersContentType.includes('application/json');
+          
+          if (isOrdersJson) {
+            try {
+              const ordersText = await ordersResponse.text();
+              const orders = JSON.parse(ordersText);
+              const ordersArray = Array.isArray(orders) ? orders : [orders];
+              
+              // Find an order with matching email
+              const matchingOrder = ordersArray.find((order: any) => {
+                const orderEmail = (
+                  order.billing?.email?.toLowerCase().trim() ||
+                  order.customer_email?.toLowerCase().trim() ||
+                  ''
+                );
+                return orderEmail === normalizedEmail;
+              });
+              
+              if (matchingOrder && matchingOrder.customer_id) {
+                customerId = parseInt(matchingOrder.customer_id);
+                console.log(`Found customer ID ${customerId} from orders for email ${normalizedEmail}`);
+                
+                // Now fetch the customer using the ID
+                const customerByIdUrl = `${apiUrl}/customers/${customerId}`;
+                const customerByIdResponse = await fetch(customerByIdUrl, {
+                  method: 'GET',
+                  headers: authHeaders,
+                });
+                
+                if (customerByIdResponse.ok) {
+                  const customerContentType = customerByIdResponse.headers.get('content-type');
+                  const isCustomerJson = customerContentType && customerContentType.includes('application/json');
+                  
+                  if (isCustomerJson) {
+                    const customerText = await customerByIdResponse.text();
+                    customer = JSON.parse(customerText);
+                  }
+                }
+              }
+            } catch (parseError) {
+              console.error('Failed to parse orders response:', parseError);
+            }
+          }
+        }
+      } catch (orderError) {
+        console.error('Error fetching orders to find customer:', orderError);
+      }
+    }
+
+    // If still not found, try subscriptions
+    if (!customer) {
+      console.log('Trying to find customer ID from subscriptions...');
+      
+      try {
+        const subscriptionsUrl = new URL(`${apiUrl}/subscriptions`);
+        subscriptionsUrl.searchParams.append('per_page', '10');
+        
+        const subscriptionsResponse = await fetch(subscriptionsUrl.toString(), {
+          method: 'GET',
+          headers: authHeaders,
+        });
+
+        if (subscriptionsResponse.ok) {
+          const subsContentType = subscriptionsResponse.headers.get('content-type');
+          const isSubsJson = subsContentType && subsContentType.includes('application/json');
+          
+          if (isSubsJson) {
+            try {
+              const subsText = await subscriptionsResponse.text();
+              const subscriptions = JSON.parse(subsText);
+              const subsArray = Array.isArray(subscriptions) ? subscriptions : [subscriptions];
+              
+              // Find a subscription with matching email
+              const matchingSub = subsArray.find((sub: any) => {
+                const subEmail = (
+                  sub.billing?.email?.toLowerCase().trim() ||
+                  sub.customer_email?.toLowerCase().trim() ||
+                  ''
+                );
+                return subEmail === normalizedEmail;
+              });
+              
+              if (matchingSub && matchingSub.customer_id) {
+                customerId = parseInt(matchingSub.customer_id);
+                console.log(`Found customer ID ${customerId} from subscriptions for email ${normalizedEmail}`);
+                
+                // Now fetch the customer using the ID
+                const customerByIdUrl = `${apiUrl}/customers/${customerId}`;
+                const customerByIdResponse = await fetch(customerByIdUrl, {
+                  method: 'GET',
+                  headers: authHeaders,
+                });
+                
+                if (customerByIdResponse.ok) {
+                  const customerContentType = customerByIdResponse.headers.get('content-type');
+                  const isCustomerJson = customerContentType && customerContentType.includes('application/json');
+                  
+                  if (isCustomerJson) {
+                    const customerText = await customerByIdResponse.text();
+                    customer = JSON.parse(customerText);
+                  }
+                }
+              }
+            } catch (parseError) {
+              console.error('Failed to parse subscriptions response:', parseError);
+            }
+          }
+        }
+      } catch (subError) {
+        console.error('Error fetching subscriptions to find customer:', subError);
+      }
+    }
+
+    // If customer still not found, return empty billing address for GET requests
+    if (!customer) {
+      return NextResponse.json({
+        success: true,
+        email: normalizedEmail,
+        customerId: null,
+        billing: {
+          first_name: '',
+          last_name: '',
+          company: '',
+          address_1: '',
+          address_2: '',
+          city: '',
+          state: '',
+          postcode: '',
+          country: '',
+          email: normalizedEmail,
+          phone: '',
+        },
+        message: 'Customer not found in WooCommerce. Billing address is empty.',
+      });
+    }
+
+    // Extract billing address - ensure all fields are properly extracted from WooCommerce API format
     const billingAddress = {
-      first_name: customer.billing?.first_name || '',
-      last_name: customer.billing?.last_name || '',
+      first_name: customer.billing?.first_name || customer.first_name || '',
+      last_name: customer.billing?.last_name || customer.last_name || '',
       company: customer.billing?.company || '',
       address_1: customer.billing?.address_1 || '',
       address_2: customer.billing?.address_2 || '',
@@ -211,7 +319,7 @@ export async function GET(request: NextRequest) {
       postcode: customer.billing?.postcode || '',
       country: customer.billing?.country || '',
       email: customer.billing?.email || customer.email || normalizedEmail,
-      phone: customer.billing?.phone || '',
+      phone: customer.billing?.phone || customer.phone || '',
     };
 
     return NextResponse.json({
@@ -331,102 +439,225 @@ export async function PUT(request: NextRequest) {
       'Accept': 'application/json',
     };
 
-    // First, get customer by email to get customer ID
-    const customersUrl = new URL(`${apiUrl}/customers`);
-    customersUrl.searchParams.append('email', normalizedEmail);
-    customersUrl.searchParams.append('per_page', '1');
+    // Try to get customer by email - similar to orders/subscriptions approach
+    let customerId: number | null = null;
+    let customer: any = null;
+    
+    try {
+      const customersUrl = new URL(`${apiUrl}/customers`);
+      customersUrl.searchParams.append('email', normalizedEmail);
+      customersUrl.searchParams.append('per_page', '1');
 
-    const customersResponse = await fetch(customersUrl.toString(), {
-      method: 'GET',
-      headers: authHeaders,
-    });
+      const customersResponse = await fetch(customersUrl.toString(), {
+        method: 'GET',
+        headers: authHeaders,
+      });
 
-    // Check if response is JSON
-    const customersContentType = customersResponse.headers.get('content-type');
-    const isCustomersJson = customersContentType && customersContentType.includes('application/json');
+      // Check if response is JSON
+      const customersContentType = customersResponse.headers.get('content-type');
+      const isCustomersJson = customersContentType && customersContentType.includes('application/json');
 
-    if (!customersResponse.ok) {
-      const errorText = await customersResponse.text();
-      
-      if (!isCustomersJson && errorText.includes('<!DOCTYPE')) {
-        return NextResponse.json(
-          {
-            error: 'WooCommerce API returned an HTML page instead of JSON',
-            details: process.env.NODE_ENV === 'development' 
-              ? 'Please check your WooCommerce API URL and credentials.' 
-              : undefined,
-          },
-          { status: 500 }
-        );
+      if (customersResponse.ok && isCustomersJson) {
+        try {
+          const customersText = await customersResponse.text();
+          const customers = JSON.parse(customersText);
+          const customersArray = Array.isArray(customers) ? customers : [customers];
+          
+          if (customersArray.length > 0 && customersArray[0].id) {
+            customer = customersArray[0];
+            customerId = parseInt(customersArray[0].id);
+            console.log(`Found customer ID ${customerId} for email ${normalizedEmail}`);
+          } else {
+            console.log(`No customer found for email ${normalizedEmail}, will try to find from orders/subscriptions`);
+          }
+        } catch (parseError) {
+          console.error('Failed to parse customers response:', parseError);
+          // Continue to try alternative methods
+        }
+      } else {
+        console.log(`Customer lookup returned ${customersResponse.status}, will try to find from orders/subscriptions`);
       }
-
-      if (customersResponse.status === 404) {
-        return NextResponse.json(
-          { error: 'Customer not found. Please register first.' },
-          { status: 404 }
-        );
-      }
-
-      return NextResponse.json(
-        {
-          error: 'Failed to fetch customer from WooCommerce',
-          details: process.env.NODE_ENV === 'development' 
-            ? `WooCommerce API returned ${customersResponse.status}: ${customersResponse.statusText}` 
-            : undefined,
-        },
-        { status: customersResponse.status || 500 }
-      );
+    } catch (customerError) {
+      console.error('Error fetching customer:', customerError);
+      // Continue to try alternative methods
     }
 
-    // Parse customer data
-    let customers;
-    try {
-      const customersText = await customersResponse.text();
-      if (!isCustomersJson) {
+    // If customer not found, try to find customer ID from orders or subscriptions in parallel
+    if (!customer) {
+      // Make parallel requests to orders and subscriptions to find customer ID
+      // Use smaller per_page (3) for faster lookup
+      const [ordersResponse, subscriptionsResponse] = await Promise.allSettled([
+        fetch(`${apiUrl}/orders?per_page=3`, { method: 'GET', headers: authHeaders }),
+        fetch(`${apiUrl}/subscriptions?per_page=3`, { method: 'GET', headers: authHeaders }),
+      ]);
+
+      // Try orders first (more common)
+      if (ordersResponse.status === 'fulfilled' && ordersResponse.value.ok) {
+        try {
+          const ordersContentType = ordersResponse.value.headers.get('content-type');
+          if (ordersContentType && ordersContentType.includes('application/json')) {
+            const orders = await ordersResponse.value.json();
+            const ordersArray = Array.isArray(orders) ? orders : [orders];
+            
+            // Find first order with matching email
+            const matchingOrder = ordersArray.find((order: any) => {
+              const orderEmail = (
+                order.billing?.email?.toLowerCase().trim() ||
+                order.customer_email?.toLowerCase().trim() ||
+                ''
+              );
+              return orderEmail === normalizedEmail && order.customer_id;
+            });
+            
+            if (matchingOrder?.customer_id) {
+              customerId = parseInt(matchingOrder.customer_id);
+            }
+          }
+        } catch (e) {
+          // Ignore parse errors, continue
+        }
+      }
+
+      // Try subscriptions if orders didn't find customer
+      if (!customerId && subscriptionsResponse.status === 'fulfilled' && subscriptionsResponse.value.ok) {
+        try {
+          const subsContentType = subscriptionsResponse.value.headers.get('content-type');
+          if (subsContentType && subsContentType.includes('application/json')) {
+            const subscriptions = await subscriptionsResponse.value.json();
+            const subsArray = Array.isArray(subscriptions) ? subscriptions : [subscriptions];
+            
+            const matchingSub = subsArray.find((sub: any) => {
+              const subEmail = (
+                sub.billing?.email?.toLowerCase().trim() ||
+                sub.customer_email?.toLowerCase().trim() ||
+                ''
+              );
+              return subEmail === normalizedEmail && sub.customer_id;
+            });
+            
+            if (matchingSub?.customer_id) {
+              customerId = parseInt(matchingSub.customer_id);
+            }
+          }
+        } catch (e) {
+          // Ignore parse errors, continue
+        }
+      }
+
+      // If we found customer ID, fetch customer details
+      if (customerId) {
+        try {
+          const customerByIdResponse = await fetch(`${apiUrl}/customers/${customerId}`, {
+            method: 'GET',
+            headers: authHeaders,
+          });
+          
+          if (customerByIdResponse.ok) {
+            const customerContentType = customerByIdResponse.headers.get('content-type');
+            if (customerContentType && customerContentType.includes('application/json')) {
+              customer = await customerByIdResponse.json();
+            }
+          }
+        } catch (e) {
+          // Ignore errors, will create new customer
+        }
+      }
+    }
+
+    // If customer still not found, create a new customer with the billing address
+    if (!customer) {
+      console.log('Customer not found, creating new customer with billing address...');
+      
+      try {
+        // Create new customer with billing address
+        const createCustomerUrl = `${apiUrl}/customers`;
+        const newCustomerData = {
+          email: normalizedEmail,
+          billing: {
+            ...billing,
+            email: billing.email || normalizedEmail,
+          },
+        };
+
+        const createResponse = await fetch(createCustomerUrl, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify(newCustomerData),
+        });
+
+        if (createResponse.ok) {
+          const createContentType = createResponse.headers.get('content-type');
+          const isCreateJson = createContentType && createContentType.includes('application/json');
+          
+          if (isCreateJson) {
+            const createText = await createResponse.text();
+            customer = JSON.parse(createText);
+            customerId = customer.id;
+            console.log(`Created new customer with ID ${customerId} for email ${normalizedEmail}`);
+          }
+        } else {
+          const errorText = await createResponse.text();
+          console.error('Failed to create customer:', errorText);
+          return NextResponse.json(
+            {
+              error: 'Customer not found and could not be created',
+              details: process.env.NODE_ENV === 'development' 
+                ? `WooCommerce API returned ${createResponse.status}: ${errorText.substring(0, 500)}` 
+                : 'Please ensure the customer exists in WooCommerce or contact support.',
+            },
+            { status: 500 }
+          );
+        }
+      } catch (createError) {
+        console.error('Error creating customer:', createError);
         return NextResponse.json(
           {
-            error: 'WooCommerce API returned an invalid response format',
-            details: process.env.NODE_ENV === 'development' 
-              ? 'The API returned HTML or non-JSON content.' 
-              : undefined,
+            error: 'Customer not found and could not be created',
+            details: process.env.NODE_ENV === 'development' && createError instanceof Error
+              ? createError.message
+              : 'Please ensure the customer exists in WooCommerce or contact support.',
           },
           { status: 500 }
         );
       }
-      customers = JSON.parse(customersText);
-    } catch (parseError) {
-      console.error('Failed to parse customers response:', parseError);
+    }
+
+    // Ensure customerId is set from customer object
+    if (!customerId && customer && customer.id) {
+      customerId = parseInt(customer.id);
+    }
+
+    if (!customerId) {
       return NextResponse.json(
-        {
-          error: 'Failed to parse response from WooCommerce API',
-          details: process.env.NODE_ENV === 'development' && parseError instanceof Error
-            ? parseError.message
-            : undefined,
-        },
+        { error: 'Unable to determine customer ID' },
         { status: 500 }
       );
     }
 
-    const customersArray = Array.isArray(customers) ? customers : [customers];
-    
-    if (customersArray.length === 0) {
+    // Prepare billing address update
+    // Merge with existing billing data to preserve fields not being updated
+    // Only update fields that are provided in the request
+    const updatedBilling = {
+      ...(customer.billing || {}),
+      ...billing,
+      // Ensure email is set
+      email: billing.email || customer.billing?.email || normalizedEmail,
+    };
+
+    // Validate required fields for billing address
+    if (!updatedBilling.first_name || !updatedBilling.last_name) {
       return NextResponse.json(
-        { error: 'Customer not found. Please register first.' },
-        { status: 404 }
+        { error: 'First name and last name are required' },
+        { status: 400 }
       );
     }
 
-    const customer = customersArray[0];
-    const customerId = customer.id;
-
-    // Prepare billing address update
-    // Merge with existing billing data to preserve fields not being updated
-    const updatedBilling = {
-      ...customer.billing,
-      ...billing,
-      // Ensure email is set
-      email: billing.email || normalizedEmail,
-    };
+    if (!updatedBilling.address_1 || !updatedBilling.city || !updatedBilling.state || !updatedBilling.postcode || !updatedBilling.country) {
+      return NextResponse.json(
+        { error: 'Address line 1, city, state, postcode, and country are required' },
+        { status: 400 }
+      );
+    }
 
     // Update customer billing address
     const updateUrl = `${apiUrl}/customers/${customerId}`;
@@ -502,10 +733,10 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Extract updated billing address
+    // Extract updated billing address - ensure all fields are properly extracted
     const billingAddress = {
-      first_name: updatedCustomer.billing?.first_name || '',
-      last_name: updatedCustomer.billing?.last_name || '',
+      first_name: updatedCustomer.billing?.first_name || updatedCustomer.first_name || '',
+      last_name: updatedCustomer.billing?.last_name || updatedCustomer.last_name || '',
       company: updatedCustomer.billing?.company || '',
       address_1: updatedCustomer.billing?.address_1 || '',
       address_2: updatedCustomer.billing?.address_2 || '',
@@ -514,7 +745,7 @@ export async function PUT(request: NextRequest) {
       postcode: updatedCustomer.billing?.postcode || '',
       country: updatedCustomer.billing?.country || '',
       email: updatedCustomer.billing?.email || updatedCustomer.email || normalizedEmail,
-      phone: updatedCustomer.billing?.phone || '',
+      phone: updatedCustomer.billing?.phone || updatedCustomer.phone || '',
     };
 
     return NextResponse.json({
@@ -542,4 +773,7 @@ export async function PUT(request: NextRequest) {
     );
   }
 }
+
+
+
 
