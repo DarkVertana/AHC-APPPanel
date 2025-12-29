@@ -20,24 +20,9 @@ type User = {
   streak?: number;
 };
 
-type MedicationLog = {
-  id: string;
-  medicineName: string;
-  dosage: string;
-  takenAt: string;
-};
-
-type MedicationWeek = {
-  week: number;
-  startDate: string;
-  endDate: string;
-  logs: MedicationLog[];
-};
 
 export default function UsersPage() {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,8 +33,6 @@ export default function UsersPage() {
   const [inactiveCount, setInactiveCount] = useState(0);
   const [avgTasksToday, setAvgTasksToday] = useState('0.0');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
-  const [medicationLogs, setMedicationLogs] = useState<MedicationWeek[]>([]);
-  const [loadingMedicationLogs, setLoadingMedicationLogs] = useState(false);
 
   // Debounce search term
   useEffect(() => {
@@ -119,36 +102,11 @@ export default function UsersPage() {
     fetchUsers();
   }, [fetchUsers]);
 
-  const handleViewUser = async (user: User) => {
-    setSelectedUser(user);
-    setIsModalOpen(true);
-    
-    // Fetch medication logs for this user
-    setLoadingMedicationLogs(true);
-    try {
-      const response = await fetch(`/api/app-users/medication-log?email=${encodeURIComponent(user.email)}`, {
-        credentials: 'include',
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setMedicationLogs(data.weeks || []);
-      } else {
-        setMedicationLogs([]);
-      }
-    } catch (error) {
-      console.error('Error fetching medication logs:', error);
-      setMedicationLogs([]);
-    } finally {
-      setLoadingMedicationLogs(false);
-    }
+  const handleViewUser = (user: User) => {
+    // Navigate to user details page
+    window.location.href = `/dashboard/users/${user.id}`;
   };
 
-  const closeModal = () => {
-    setIsModalOpen(false);
-    setSelectedUser(null);
-    setMedicationLogs([]);
-  };
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
@@ -383,201 +341,6 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {/* View User Modal */}
-      {isModalOpen && selectedUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={closeModal}>
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl" onClick={(e) => e.stopPropagation()}>
-            {/* Modal Header */}
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <h3 className="text-2xl font-bold text-[#435970]">User Details</h3>
-              <button
-                onClick={closeModal}
-                className="text-[#7895b3] hover:text-[#435970] transition-colors"
-                aria-label="Close modal"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-6 space-y-6">
-              {/* User Profile Section */}
-              <div className="flex items-center gap-4 pb-6 border-b border-gray-200">
-                <div className="w-20 h-20 bg-[#435970] rounded-full flex items-center justify-center text-white font-semibold text-2xl">
-                  {selectedUser.name.split(' ').map(n => n[0]).join('')}
-                </div>
-                <div>
-                  <h4 className="text-2xl font-bold text-[#435970] mb-1">{selectedUser.name}</h4>
-                  <p className="text-[#7895b3]">{selectedUser.email}</p>
-                  <span className={`inline-flex mt-2 px-3 py-1 text-xs font-medium rounded-full ${
-                    selectedUser.status === 'Active'
-                      ? 'bg-[#dfedfb] text-[#435970]'
-                      : 'bg-[#dfedfb]/50 text-[#7895b3]'
-                  }`}>
-                    {selectedUser.status}
-                  </span>
-                </div>
-              </div>
-
-              {/* User Information Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Basic Information */}
-                <div className="space-y-4">
-                  <h5 className="text-lg font-semibold text-[#435970] mb-3">Basic Information</h5>
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-xs text-[#7895b3] mb-1">Username</p>
-                      <p className="text-sm font-medium text-[#435970]">{selectedUser.name}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-[#7895b3] mb-1">Email Address</p>
-                      <p className="text-sm font-medium text-[#435970]">{selectedUser.email}</p>
-                    </div>
-                    {selectedUser.phone && (
-                      <div>
-                        <p className="text-xs text-[#7895b3] mb-1">Phone Number</p>
-                        <p className="text-sm font-medium text-[#435970]">{selectedUser.phone}</p>
-                      </div>
-                    )}
-                    {selectedUser.age && (
-                      <div>
-                        <p className="text-xs text-[#7895b3] mb-1">Age</p>
-                        <p className="text-sm font-medium text-[#435970]">{selectedUser.age} years</p>
-                      </div>
-                    )}
-                    {selectedUser.height && (
-                      <div>
-                        <p className="text-xs text-[#7895b3] mb-1">Height</p>
-                        <p className="text-sm font-medium text-[#435970]">{selectedUser.height}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Fitness Information */}
-                <div className="space-y-4">
-                  <h5 className="text-lg font-semibold text-[#435970] mb-3">Fitness Information</h5>
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-xs text-[#7895b3] mb-1">Current Weight</p>
-                      <p className="text-sm font-medium text-[#435970]">
-                        {selectedUser.weight === 'N/A' ? 'N/A' : `${selectedUser.weight} lbs`}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-[#7895b3] mb-1">Goal Weight</p>
-                      <p className="text-sm font-medium text-[#435970]">
-                        {selectedUser.goal === 'N/A' ? 'N/A' : `${selectedUser.goal} lbs`}
-                      </p>
-                    </div>
-                    {selectedUser.totalWorkouts !== undefined && (
-                      <div>
-                        <p className="text-xs text-[#7895b3] mb-1">Total Workouts</p>
-                        <p className="text-sm font-medium text-[#435970]">{selectedUser.totalWorkouts}</p>
-                      </div>
-                    )}
-                    {selectedUser.totalCalories !== undefined && (
-                      <div>
-                        <p className="text-xs text-[#7895b3] mb-1">Total Calories Burned</p>
-                        <p className="text-sm font-medium text-[#435970]">{selectedUser.totalCalories.toLocaleString()}</p>
-                      </div>
-                    )}
-                    {selectedUser.streak !== undefined && (
-                      <div>
-                        <p className="text-xs text-[#7895b3] mb-1">Current Streak</p>
-                        <p className="text-sm font-medium text-[#435970]">{selectedUser.streak} days</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Activity Information */}
-              <div className="pt-4 border-t border-gray-200">
-                <h5 className="text-lg font-semibold text-[#435970] mb-4">Activity Information</h5>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-[#dfedfb]/20 rounded-lg p-4 border border-[#dfedfb]">
-                    <p className="text-xs text-[#7895b3] mb-1">Tasks Today</p>
-                    <p className="text-2xl font-bold text-[#435970]">{selectedUser.tasksToday}</p>
-                  </div>
-                  <div className="bg-[#dfedfb]/20 rounded-lg p-4 border border-[#dfedfb]">
-                    <p className="text-xs text-[#7895b3] mb-1">Last Login</p>
-                    <p className="text-sm font-medium text-[#435970]">{selectedUser.lastLogin}</p>
-                  </div>
-                  <div className="bg-[#dfedfb]/20 rounded-lg p-4 border border-[#dfedfb]">
-                    <p className="text-xs text-[#7895b3] mb-1">Join Date</p>
-                    <p className="text-sm font-medium text-[#435970]">{new Date(selectedUser.joinDate).toLocaleDateString()}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Medication Log Section */}
-              <div className="pt-4 border-t border-gray-200">
-                <h5 className="text-lg font-semibold text-[#435970] mb-4">Medication Log (Last 4 Weeks)</h5>
-                {loadingMedicationLogs ? (
-                  <div className="flex items-center justify-center py-8">
-                    <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-[#435970]"></div>
-                    <p className="ml-3 text-[#7895b3]">Loading medication logs...</p>
-                  </div>
-                ) : medicationLogs.length === 0 ? (
-                  <p className="text-sm text-[#7895b3] text-center py-4">No medication logs found for the last 4 weeks.</p>
-                ) : (
-                  <div className="space-y-4">
-                    {medicationLogs.map((week) => (
-                      <div key={week.week} className="bg-[#dfedfb]/20 rounded-lg p-4 border border-[#dfedfb]">
-                        <div className="flex items-center justify-between mb-3">
-                          <h6 className="text-sm font-semibold text-[#435970]">
-                            Week {week.week} ({new Date(week.startDate).toLocaleDateString()} - {new Date(week.endDate).toLocaleDateString()})
-                          </h6>
-                          <span className="text-xs text-[#7895b3] bg-[#dfedfb] px-2 py-1 rounded-full">
-                            {week.logs.length} {week.logs.length === 1 ? 'entry' : 'entries'}
-                          </span>
-                        </div>
-                        {week.logs.length === 0 ? (
-                          <p className="text-xs text-[#7895b3] italic">No medication logged this week</p>
-                        ) : (
-                          <div className="space-y-2">
-                            {week.logs.map((log) => (
-                              <div key={log.id} className="bg-white rounded p-3 border border-[#dfedfb]">
-                                <div className="flex items-start justify-between">
-                                  <div className="flex-1">
-                                    <p className="text-sm font-medium text-[#435970]">{log.medicineName}</p>
-                                    <p className="text-xs text-[#7895b3] mt-1">Dosage: {log.dosage}</p>
-                                  </div>
-                                  <div className="text-right">
-                                    <p className="text-xs text-[#7895b3]">
-                                      {new Date(log.takenAt).toLocaleDateString()}
-                                    </p>
-                                    <p className="text-xs text-[#7895b3]">
-                                      {new Date(log.takenAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end">
-              <button
-                onClick={closeModal}
-                className="px-6 py-2 bg-[#435970] text-white rounded-lg font-medium hover:bg-[#7895b3] transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
