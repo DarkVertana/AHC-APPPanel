@@ -18,10 +18,8 @@ export async function GET(request: NextRequest) {
     const activeOnly = searchParams.get('activeOnly') === 'true';
 
     // Build where clause
-    const whereClause: {
-      isActive?: boolean;
-      OR?: { question: { contains: string; mode: 'insensitive' } }[] | { answer: { contains: string; mode: 'insensitive' } }[];
-    } = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const whereClause: any = {};
 
     if (activeOnly) {
       whereClause.isActive = true;

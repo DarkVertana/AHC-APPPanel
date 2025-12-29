@@ -483,9 +483,9 @@ export default function FAQsPage() {
         isOpen={deleteModalOpen}
         title="Delete FAQ"
         message={`Are you sure you want to delete this FAQ? This action cannot be undone.`}
-        confirmLabel="Delete"
+        confirmText="Delete"
         onConfirm={handleConfirmDelete}
-        onCancel={() => {
+        onClose={() => {
           setDeleteModalOpen(false);
           setDeletingFaq(null);
         }}
