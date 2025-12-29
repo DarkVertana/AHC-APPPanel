@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { prisma } from '@/lib/prisma';
 
 // GET - List all active FAQs (public endpoint for mobile app)
 export async function GET(request: NextRequest) {
