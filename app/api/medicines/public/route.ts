@@ -95,6 +95,7 @@ export async function GET(request: NextRequest) {
           description: medicine.description,
           image: getImageUrl(medicine.image, requestUrl, true), // Force absolute URL for mobile
           url: medicine.url,
+          price: medicine.price,
           createdAt: medicine.createdAt.toISOString(),
           updatedAt: medicine.updatedAt.toISOString(),
         },
@@ -161,6 +162,7 @@ export async function GET(request: NextRequest) {
         description: medicine.description,
         image: getImageUrl(medicine.image, requestUrl, true), // Force absolute URL for mobile
         url: medicine.url,
+        price: medicine.price,
         createdAt: medicine.createdAt.toISOString(),
         updatedAt: medicine.updatedAt.toISOString(),
       })),

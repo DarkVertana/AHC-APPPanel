@@ -80,6 +80,7 @@ export async function GET(request: NextRequest) {
         description: medicine.description,
         image: medicine.image,
         url: medicine.url,
+        price: medicine.price,
         status: medicine.status,
         createdAt: medicine.createdAt.toISOString(),
         updatedAt: medicine.updatedAt.toISOString(),
@@ -113,7 +114,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { categoryId, title, tagline, description, image, url, status } = body;
+    const { categoryId, title, tagline, description, image, url, price, status } = body;
 
     // Validate required fields
     if (!categoryId || !title) {
@@ -144,6 +145,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate price if provided
+    let priceValue: number | null = null;
+    if (price !== undefined && price !== null && price !== '') {
+      priceValue = parseFloat(price);
+      if (isNaN(priceValue) || priceValue < 0) {
+        return NextResponse.json(
+          { error: 'Price must be a valid positive number' },
+          { status: 400 }
+        );
+      }
+    }
+
     // Create medicine
     const medicine = await prisma.medicine.create({
       data: {
@@ -153,6 +166,7 @@ export async function POST(request: NextRequest) {
         description: description?.trim() || null,
         image: image?.trim() || null,
         url: url?.trim() || null,
+        price: priceValue,
         status: status || 'active',
       },
       include: {
@@ -182,6 +196,7 @@ export async function POST(request: NextRequest) {
         description: medicine.description,
         image: medicine.image,
         url: medicine.url,
+        price: medicine.price,
         status: medicine.status,
         createdAt: medicine.createdAt.toISOString(),
         updatedAt: medicine.updatedAt.toISOString(),

@@ -27,6 +27,7 @@ type Medicine = {
   description: string | null;
   image: string | null;
   url: string | null;
+  price: number | null;
   status: string;
 };
 
@@ -107,7 +108,8 @@ export default function MedicinesPage() {
     tagline: '',
     description: '',
     image: '',
-    url: ''
+    url: '',
+    price: ''
   });
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -128,7 +130,8 @@ export default function MedicinesPage() {
       tagline: '',
       description: '',
       image: '',
-      url: ''
+      url: '',
+      price: ''
     });
     setImagePreview(null);
     setImageFile(null);
@@ -144,7 +147,8 @@ export default function MedicinesPage() {
       tagline: medicine.tagline || '',
       description: medicine.description || '',
       image: existingImage,
-      url: medicine.url || ''
+      url: medicine.url || '',
+      price: medicine.price?.toString() || ''
     });
     setImagePreview(existingImage || null);
     setIsModalOpen(true);
@@ -272,6 +276,7 @@ export default function MedicinesPage() {
           description: formData.description.trim() || null,
           image: imageUrl || null,
           url: formData.url.trim() || null,
+          price: formData.price.trim() || null,
         }),
       });
 
@@ -441,6 +446,9 @@ export default function MedicinesPage() {
                 <th className="px-3 py-3 text-left text-xs font-semibold text-[#435970] uppercase tracking-wider w-32">
                   URL
                 </th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-[#435970] uppercase tracking-wider w-24">
+                  Price (USD)
+                </th>
                 <th className="px-3 py-3 text-left text-xs font-semibold text-[#435970] uppercase tracking-wider w-20">
                   Actions
                 </th>
@@ -449,7 +457,7 @@ export default function MedicinesPage() {
             <tbody className="divide-y divide-[#dfedfb]">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center">
+                  <td colSpan={7} className="px-6 py-12 text-center">
                     <div className="flex items-center justify-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#435970]"></div>
                       <span className="ml-3 text-[#7895b3]">Loading medicines...</span>
@@ -458,7 +466,7 @@ export default function MedicinesPage() {
                 </tr>
               ) : filteredMedicines.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center">
+                  <td colSpan={7} className="px-6 py-12 text-center">
                     <p className="text-[#7895b3]">
                       {searchTerm || selectedCategory !== 'All' 
                         ? 'No medicines found matching your criteria. Try adjusting your search or filter.'
@@ -537,6 +545,13 @@ export default function MedicinesPage() {
                       ) : (
                         <span className="text-sm text-[#7895b3]">-</span>
                       )}
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className="text-sm font-medium text-[#435970]">
+                        {medicine.price !== null && medicine.price !== undefined 
+                          ? `$${parseFloat(medicine.price.toString()).toFixed(2)}`
+                          : '-'}
+                      </span>
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2">
@@ -754,6 +769,23 @@ export default function MedicinesPage() {
                   onChange={(e) => setFormData({ ...formData, url: e.target.value })}
                   className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] placeholder:text-[#7895b3]"
                   placeholder="https://example.com/product"
+                />
+              </div>
+
+              {/* Price */}
+              <div>
+                <label htmlFor="price" className="block text-sm font-medium text-[#435970] mb-2">
+                  Price (USD)
+                </label>
+                <input
+                  type="number"
+                  id="price"
+                  step="0.01"
+                  min="0"
+                  value={formData.price}
+                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                  className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] placeholder:text-[#7895b3]"
+                  placeholder="0.00"
                 />
               </div>
 

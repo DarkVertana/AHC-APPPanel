@@ -55,6 +55,7 @@ export async function GET(
         description: medicine.description,
         image: medicine.image,
         url: medicine.url,
+        price: medicine.price,
         status: medicine.status,
         createdAt: medicine.createdAt.toISOString(),
         updatedAt: medicine.updatedAt.toISOString(),
@@ -88,7 +89,7 @@ export async function PUT(
     const resolvedParams = params instanceof Promise ? await params : params;
 
     const body = await request.json();
-    const { categoryId, title, tagline, description, image, url, status } = body;
+    const { categoryId, title, tagline, description, image, url, price, status } = body;
 
     // Check if medicine exists
     const existingMedicine = await prisma.medicine.findUnique({
@@ -152,6 +153,20 @@ export async function PUT(
     if (url !== undefined) {
       updateData.url = url && url.trim() ? url.trim() : null;
     }
+    if (price !== undefined) {
+      if (price === null || price === '') {
+        updateData.price = null;
+      } else {
+        const priceValue = parseFloat(price);
+        if (isNaN(priceValue) || priceValue < 0) {
+          return NextResponse.json(
+            { error: 'Price must be a valid positive number' },
+            { status: 400 }
+          );
+        }
+        updateData.price = priceValue;
+      }
+    }
     if (status !== undefined) {
       updateData.status = status;
     }
@@ -187,6 +202,7 @@ export async function PUT(
         description: medicine.description,
         image: medicine.image,
         url: medicine.url,
+        price: medicine.price,
         status: medicine.status,
         createdAt: medicine.createdAt.toISOString(),
         updatedAt: medicine.updatedAt.toISOString(),
