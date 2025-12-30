@@ -349,7 +349,7 @@ X-API-Key: ahc_live_sk_your_api_key_here
 
 #### 4. Get Weight Logs
 
-Retrieve weight logs for a specific user.
+Retrieve all weight logs for a specific user. The endpoint automatically finds all weight logs associated with the user's email or user ID, with improved matching and backward compatibility.
 
 **Endpoint:** `GET /api/weight-logs/public`
 
@@ -362,7 +362,7 @@ X-API-Key: ahc_live_sk_your_api_key_here
 - `userId` (string, optional): WordPress user ID
 - `userEmail` (string, optional): User email address
 - `page` (number, optional): Page number (default: 1)
-- `limit` (number, optional): Items per page (default: 10, max: 50)
+- `limit` (number, optional): Items per page (default: 50, max: 100)
 - `startDate` (string, optional): Filter from date (YYYY-MM-DD)
 - `endDate` (string, optional): Filter to date (YYYY-MM-DD)
 
@@ -370,8 +370,10 @@ X-API-Key: ahc_live_sk_your_api_key_here
 
 **Example Request:**
 ```http
-GET /api/weight-logs/public?userId=123&page=1&limit=10
+GET /api/weight-logs/public?userId=123&page=1&limit=50
+GET /api/weight-logs/public?userEmail=user@example.com
 GET /api/weight-logs/public?userEmail=user@example.com&startDate=2024-01-01&endDate=2024-01-31
+GET /api/weight-logs/public?userEmail=user@example.com&page=1&limit=100
 ```
 
 **Response (200 OK):**
@@ -398,18 +400,66 @@ GET /api/weight-logs/public?userEmail=user@example.com&startDate=2024-01-01&endD
       "changeType": "decrease",
       "createdAt": "2024-01-15T10:30:00.000Z",
       "updatedAt": "2024-01-15T10:30:00.000Z"
+    },
+    {
+      "id": "clx789ghi",
+      "userId": "123",
+      "userEmail": "user@example.com",
+      "userName": "John Doe",
+      "appUser": null,
+      "date": "2024-01-10",
+      "weight": 180.0,
+      "previousWeight": null,
+      "change": null,
+      "changeType": null,
+      "createdAt": "2024-01-10T08:00:00.000Z",
+      "updatedAt": "2024-01-10T08:00:00.000Z"
     }
   ],
   "pagination": {
     "page": 1,
-    "limit": 10,
+    "limit": 50,
     "total": 25,
-    "totalPages": 3,
-    "hasNextPage": true,
+    "totalPages": 1,
+    "hasNextPage": false,
     "hasPreviousPage": false
   }
 }
 ```
+
+**Response Fields:**
+- `success` (boolean): Indicates if the request was successful
+- `logs` (array): Array of weight log objects
+  - `id` (string): Unique identifier for the weight log
+  - `userId` (string): User ID from the log
+  - `userEmail` (string): User email from the log
+  - `userName` (string): User name (from log or appUser)
+  - `appUser` (object|null): App user information if available, null for backward compatibility
+  - `date` (string): Date of the weight log (YYYY-MM-DD format)
+  - `weight` (number): Weight in lbs
+  - `previousWeight` (number|null): Previous weight for comparison
+  - `change` (number|null): Change in weight from previous log
+  - `changeType` (string|null): Type of change - "increase", "decrease", or "no-change"
+  - `createdAt` (string): ISO 8601 timestamp of when the log was created
+  - `updatedAt` (string): ISO 8601 timestamp of when the log was last updated
+- `pagination` (object): Pagination information
+  - `page` (number): Current page number
+  - `limit` (number): Items per page
+  - `total` (number): Total number of weight logs
+  - `totalPages` (number): Total number of pages
+  - `hasNextPage` (boolean): Whether there are more pages
+  - `hasPreviousPage` (boolean): Whether there are previous pages
+
+**Important Notes:**
+- **Email Matching**: Email addresses are automatically normalized (lowercase, trimmed) for accurate matching
+- **User Lookup**: The endpoint first tries to find the user by `wpUserId` or email in the `app_user` table
+- **Backward Compatibility**: If no AppUser is found, the endpoint searches weight logs by `userEmail` or `userId` fields directly
+- **All Logs**: Returns all weight logs associated with the user, regardless of how they were created
+- **Default Limit**: Default limit is 50 (increased from 10) to retrieve more logs by default
+- **Max Limit**: Maximum limit is 100 (increased from 50) for retrieving large datasets
+- **Date Filtering**: Use `startDate` and `endDate` to filter logs within a specific date range
+- **Ordering**: Logs are ordered by date in descending order (most recent first)
+- **Empty Response**: If no user is found, returns an empty array with pagination info (not an error)
 
 **Error Responses:**
 - `400 Bad Request`: Missing both userId and userEmail parameters
@@ -1952,6 +2002,43 @@ class ApiService {
     }
   }
 
+  // Get Weight Logs
+  static Future<Map<String, dynamic>> getWeightLogs({
+    String? userId,
+    String? userEmail,
+    int page = 1,
+    int limit = 50,
+    String? startDate,
+    String? endDate,
+  }) async {
+    final queryParams = <String, String>{
+      'page': page.toString(),
+      'limit': limit.toString(),
+    };
+
+    if (userId != null) {
+      queryParams['userId'] = userId;
+    }
+    if (userEmail != null) {
+      queryParams['userEmail'] = userEmail;
+    }
+    if (startDate != null) {
+      queryParams['startDate'] = startDate;
+    }
+    if (endDate != null) {
+      queryParams['endDate'] = endDate;
+    }
+
+    final uri = Uri.parse('$baseUrl/weight-logs/public').replace(queryParameters: queryParams);
+    final response = await http.get(uri, headers: headers);
+
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else {
+      throw Exception('Failed to fetch weight logs');
+    }
+  }
+
   // Get Blogs
   static Future<Map<String, dynamic>> getBlogs({
     int page = 1,
@@ -2024,7 +2111,15 @@ For API support, issues, or questions:
 
 ## Changelog
 
-### Version 1.5.0 (Current)
+### Version 1.6.0 (Current)
+- Improved Weight Logs GET endpoint
+- Increased default limit from 10 to 50, max limit from 50 to 100
+- Enhanced email matching with case-insensitive normalization
+- Added backward compatibility to retrieve logs by userEmail/userId fields
+- Better handling of logs when AppUser is not found
+- All weight logs for a user are now properly retrieved regardless of how they were created
+
+### Version 1.5.0
 - Added FAQ endpoints (GET)
 - Mobile apps can now retrieve all active FAQs
 - FAQs are sorted by display order and creation date

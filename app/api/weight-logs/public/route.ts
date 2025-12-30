@@ -210,7 +210,7 @@ export async function GET(request: NextRequest) {
     const userId = searchParams.get('userId');
     const userEmail = searchParams.get('userEmail');
     const page = parseInt(searchParams.get('page') || '1');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '10'), 50);
+    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100); // Increased default to 50, max 100
     const skip = (page - 1) * limit;
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
@@ -222,37 +222,70 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Find AppUser first
+    // Normalize email if provided
+    const normalizedEmail = userEmail ? userEmail.toLowerCase().trim() : null;
+
+    // Find AppUser first - try both userId and email
     let appUser = null;
     if (userId) {
       appUser = await prisma.appUser.findFirst({
-        where: { wpUserId: userId },
-      });
-    } else if (userEmail) {
-      appUser = await prisma.appUser.findFirst({
-        where: { email: userEmail },
+        where: { wpUserId: userId.toString() },
       });
     }
-
-    if (!appUser) {
-      return NextResponse.json({
-        success: true,
-        logs: [],
-        pagination: {
-          page,
-          limit,
-          total: 0,
-          totalPages: 0,
-          hasNextPage: false,
-          hasPreviousPage: false,
+    
+    // If not found by userId, try email
+    if (!appUser && normalizedEmail) {
+      appUser = await prisma.appUser.findFirst({
+        where: { 
+          email: {
+            equals: normalizedEmail,
+            mode: 'insensitive',
+          },
         },
       });
     }
 
-    // Build where clause
-    const where: any = {
-      appUserId: appUser.id,
-    };
+    // Build where clause - search by appUserId if found, otherwise by email/userId fields for backward compatibility
+    const where: any = {};
+    
+    if (appUser) {
+      // Primary: search by appUserId (most accurate)
+      where.appUserId = appUser.id;
+    } else {
+      // Fallback: search by email or userId fields for backward compatibility
+      where.OR = [];
+      
+      if (normalizedEmail) {
+        where.OR.push({
+          userEmail: {
+            equals: normalizedEmail,
+            mode: 'insensitive',
+          },
+        });
+      }
+      
+      if (userId) {
+        where.OR.push({
+          userId: userId.toString(),
+        });
+      }
+      
+      // If no OR conditions, return empty
+      if (where.OR.length === 0) {
+        return NextResponse.json({
+          success: true,
+          logs: [],
+          pagination: {
+            page,
+            limit,
+            total: 0,
+            totalPages: 0,
+            hasNextPage: false,
+            hasPreviousPage: false,
+          },
+        });
+      }
+    }
     
     if (startDate) {
       where.date = { ...where.date, gte: new Date(startDate) };
@@ -290,15 +323,15 @@ export async function GET(request: NextRequest) {
       logs: logs.map(log => ({
         id: log.id,
         userId: log.userId,
-        userName: log.userName || log.appUser.name || log.appUser.displayName || log.appUser.email.split('@')[0],
+        userName: log.userName || (log.appUser ? (log.appUser.name || log.appUser.displayName || log.appUser.email.split('@')[0]) : log.userEmail.split('@')[0]),
         userEmail: log.userEmail,
-        appUser: {
+        appUser: log.appUser ? {
           id: log.appUser.id,
           email: log.appUser.email,
           name: log.appUser.name,
           displayName: log.appUser.displayName,
           wpUserId: log.appUser.wpUserId,
-        },
+        } : null,
         date: log.date.toISOString().split('T')[0],
         weight: log.weight,
         previousWeight: log.previousWeight,
