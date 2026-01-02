@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
+import { getCacheWithStale, setCache, buildSubscriptionsCacheKey, CACHE_TTL, refreshCacheInBackground, deleteCache } from '@/lib/redis';
+
+// Cache settings for 5 minutes to reduce database queries
+let cachedSettings: any = null;
+let settingsCacheTime = 0;
+const SETTINGS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Get WooCommerce Subscriptions by Customer Email Endpoint
@@ -19,18 +25,11 @@ import { validateApiKey } from '@/lib/middleware';
  * - List of subscriptions for the specified customer email
  */
 export async function GET(request: NextRequest) {
+  const startTime = Date.now();
+  
   try {
     // Validate API key
-    let apiKey;
-    try {
-      apiKey = await validateApiKey(request);
-    } catch (apiKeyError) {
-      console.error('API key validation error:', apiKeyError);
-      return NextResponse.json(
-        { error: 'API key validation failed', details: process.env.NODE_ENV === 'development' ? (apiKeyError instanceof Error ? apiKeyError.message : 'Unknown error') : undefined },
-        { status: 500 }
-      );
-    }
+    const apiKey = await validateApiKey(request);
     
     if (!apiKey) {
       return NextResponse.json(
@@ -40,8 +39,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Get query parameters
-    const { searchParams } = new URL(request.url);
-    const email = searchParams.get('email');
+    const url = new URL(request.url);
+    const email = url.searchParams.get('email');
+    const noCache = url.searchParams.get('nocache') === '1';
 
     // Validate email parameter
     if (!email) {
@@ -54,125 +54,140 @@ export async function GET(request: NextRequest) {
     // Normalize email
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Get WooCommerce settings from database
-    const settings = await prisma.settings.findUnique({
-      where: { id: 'settings' },
-    });
+    // Build cache key
+    const cacheKey = buildSubscriptionsCacheKey(normalizedEmail);
 
-    if (!settings || !settings.woocommerceApiUrl || !settings.woocommerceApiKey || !settings.woocommerceApiSecret) {
-      return NextResponse.json(
-        { error: 'WooCommerce API credentials are not configured. Please configure them in the admin settings.' },
-        { status: 500 }
-      );
-    }
-
-    // Prepare WooCommerce API URL
-    // Remove trailing slash if present and ensure proper endpoint
-    let apiUrl = settings.woocommerceApiUrl.replace(/\/$/, '');
-    
-    // Auto-fix API URL if it's missing the wp-json path
-    // If URL doesn't contain /wp-json/wc/, try to construct it
-    if (!apiUrl.includes('/wp-json/wc/')) {
-      // Try to append the standard WooCommerce REST API path
-      const baseUrl = apiUrl.replace(/\/wp-json.*$/, ''); // Remove any existing wp-json path
-      apiUrl = `${baseUrl}/wp-json/wc/v3`; // Default to v3
-      console.warn(`WooCommerce API URL was missing /wp-json/wc/ path. Auto-corrected to: ${apiUrl}`);
-    }
-    
-    // Validate API URL format - should contain wp-json/wc/v3 or wp-json/wc/v1
-    if (!apiUrl.includes('/wp-json/wc/')) {
-      return NextResponse.json(
-        {
-          error: 'Invalid WooCommerce API URL format',
-          details: process.env.NODE_ENV === 'development' 
-            ? `The API URL "${settings.woocommerceApiUrl}" is invalid. It should be in the format: https://yourstore.com/wp-json/wc/v3 or https://yourstore.com/wp-json/wc/v1` 
-            : 'Please check your WooCommerce API URL in admin settings. It should include /wp-json/wc/v3 or /wp-json/wc/v1',
-        },
-        { status: 400 }
-      );
-    }
-
-    // Create Basic Auth header for WooCommerce API
-    // WooCommerce uses Consumer Key as username and Consumer Secret as password
-    const authString = Buffer.from(
-      `${settings.woocommerceApiKey}:${settings.woocommerceApiSecret}`
-    ).toString('base64');
-
-    const authHeaders = {
-      'Authorization': `Basic ${authString}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    };
-
-    // Try to get customer by email to get customer ID (optimized with timeout)
-    // If this fails, we'll fetch all subscriptions and filter by email
-    let customerId: number | null = null;
-    
-    try {
-      const customersUrl = new URL(`${apiUrl}/customers`);
-      customersUrl.searchParams.append('email', normalizedEmail);
-      customersUrl.searchParams.append('per_page', '1');
-
-      // Use AbortController for timeout to avoid hanging
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
-
-      const customersResponse = await fetch(customersUrl.toString(), {
-        method: 'GET',
-        headers: authHeaders,
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (customersResponse.ok) {
-        const customersContentType = customersResponse.headers.get('content-type');
-        const isCustomersJson = customersContentType && customersContentType.includes('application/json');
+    // Check Redis cache with stale detection (unless nocache is set)
+    if (!noCache) {
+      const cacheResult = await getCacheWithStale<any>(cacheKey, 30); // 30 seconds stale threshold
+      
+      if (cacheResult.data) {
+        const responseTime = Date.now() - startTime;
         
-        if (isCustomersJson) {
-          try {
+        // If data is stale, trigger background refresh and return stale data immediately
+        if (cacheResult.isStale) {
+          // Trigger background refresh (non-blocking)
+          refreshCacheInBackground(
+            cacheKey,
+            async () => {
+              return await fetchSubscriptionsFromWooCommerce(normalizedEmail);
+            },
+            CACHE_TTL.SUBSCRIPTIONS
+          ).catch(() => {}); // Ignore errors
+
+          return NextResponse.json({
+            ...cacheResult.data,
+            fromCache: true,
+            stale: true,
+            refreshing: true,
+            responseTime: `${responseTime}ms`,
+          });
+        }
+
+        // Fresh cache hit - return immediately
+        return NextResponse.json({
+          ...cacheResult.data,
+          fromCache: true,
+          stale: false,
+          refreshing: false,
+          responseTime: `${responseTime}ms`,
+        });
+      }
+    }
+
+    // Helper function to get WooCommerce settings
+    async function getWooCommerceSettings() {
+      const now = Date.now();
+      if (cachedSettings && (now - settingsCacheTime) < SETTINGS_CACHE_TTL) {
+        return cachedSettings;
+      }
+      
+      const settings = await prisma.settings.findUnique({
+        where: { id: 'settings' },
+        select: {
+          woocommerceApiUrl: true,
+          woocommerceApiKey: true,
+          woocommerceApiSecret: true,
+        },
+      });
+      
+      if (settings) {
+        cachedSettings = settings;
+        settingsCacheTime = now;
+      }
+      
+      return settings;
+    }
+
+    // Helper function to fetch subscriptions from WooCommerce
+    async function fetchSubscriptionsFromWooCommerce(email: string) {
+      const settings = await getWooCommerceSettings();
+
+      if (!settings || !settings.woocommerceApiUrl || !settings.woocommerceApiKey || !settings.woocommerceApiSecret) {
+        throw new Error('WooCommerce API credentials are not configured');
+      }
+
+      // Prepare WooCommerce API URL
+      let apiUrl = settings.woocommerceApiUrl.replace(/\/$/, '');
+      
+      if (!apiUrl.includes('/wp-json/wc/')) {
+        const baseUrl = apiUrl.replace(/\/wp-json.*$/, '');
+        apiUrl = `${baseUrl}/wp-json/wc/v3`;
+      }
+      
+      if (!apiUrl.includes('/wp-json/wc/')) {
+        throw new Error('Invalid WooCommerce API URL format');
+      }
+
+      // Create Basic Auth header
+      const authString = Buffer.from(`${settings.woocommerceApiKey}:${settings.woocommerceApiSecret}`).toString('base64');
+      const authHeaders = {
+        'Authorization': `Basic ${authString}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+
+      // Try to get customer by email
+      let customerId: number | null = null;
+      
+      try {
+        const customersUrl = new URL(`${apiUrl}/customers`);
+        customersUrl.searchParams.append('email', email);
+        customersUrl.searchParams.append('per_page', '1');
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+        const customersResponse = await fetch(customersUrl.toString(), {
+          method: 'GET',
+          headers: authHeaders,
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (customersResponse.ok) {
+          const customersContentType = customersResponse.headers.get('content-type');
+          const isCustomersJson = customersContentType && customersContentType.includes('application/json');
+          
+          if (isCustomersJson) {
             const customers = await customersResponse.json();
             const customersArray = Array.isArray(customers) ? customers : [customers];
             if (customersArray.length > 0 && customersArray[0].id) {
               customerId = parseInt(customersArray[0].id);
             }
-          } catch (parseError) {
-            // Continue without customer ID
           }
         }
+      } catch (customerError) {
+        // Continue without customer ID
       }
-    } catch (customerError) {
-      // Timeout or error - continue without customer ID, will fetch all and filter
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Customer lookup skipped or failed, will fetch all subscriptions and filter by email');
-      }
-    }
 
-    // Fetch subscriptions from WooCommerce API
-    // WooCommerce Subscriptions plugin uses /subscriptions endpoint
-    // The customer parameter only accepts customer ID, not email
-    let subscriptionsUrl: URL;
-    let woocommerceResponse: Response;
-    let subscriptions: any;
+      // Fetch subscriptions
+      let subscriptionsUrl: URL;
+      let woocommerceResponse: Response;
 
-    // Try v3 endpoint first (newer WooCommerce versions)
-    subscriptionsUrl = new URL(`${apiUrl}/subscriptions`);
-    
-    // Only use customer ID if we have it, otherwise fetch all and filter by email
-    if (customerId) {
-      subscriptionsUrl.searchParams.append('customer', customerId.toString());
-    }
-    subscriptionsUrl.searchParams.append('per_page', '100'); // Get up to 100 subscriptions
-
-    woocommerceResponse = await fetch(subscriptionsUrl.toString(), {
-      method: 'GET',
-      headers: authHeaders,
-    });
-
-    // If v3 endpoint doesn't work, try v1 endpoint (older WooCommerce Subscriptions versions)
-    if (!woocommerceResponse.ok && woocommerceResponse.status === 404) {
-      const apiUrlV1 = apiUrl.replace('/wc/v3', '/wc/v1');
-      subscriptionsUrl = new URL(`${apiUrlV1}/subscriptions`);
+      subscriptionsUrl = new URL(`${apiUrl}/subscriptions`);
+      
       if (customerId) {
         subscriptionsUrl.searchParams.append('customer', customerId.toString());
       }
@@ -182,36 +197,122 @@ export async function GET(request: NextRequest) {
         method: 'GET',
         headers: authHeaders,
       });
-    }
 
-    // Check if response is JSON
-    const contentType = woocommerceResponse.headers.get('content-type');
-    const isJson = contentType && contentType.includes('application/json');
+      // If v3 endpoint doesn't work, try v1 endpoint
+      if (!woocommerceResponse.ok && woocommerceResponse.status === 404) {
+        const apiUrlV1 = apiUrl.replace('/wc/v3', '/wc/v1');
+        subscriptionsUrl = new URL(`${apiUrlV1}/subscriptions`);
+        if (customerId) {
+          subscriptionsUrl.searchParams.append('customer', customerId.toString());
+        }
+        subscriptionsUrl.searchParams.append('per_page', '100');
 
-    if (!woocommerceResponse.ok) {
-      const errorText = await woocommerceResponse.text();
-      console.error('WooCommerce Subscriptions API error:', {
-        status: woocommerceResponse.status,
-        statusText: woocommerceResponse.statusText,
-        contentType,
-        error: errorText.substring(0, 500), // Limit error text length
-      });
-
-      // If HTML error page is returned, provide a better error message
-      if (!isJson && errorText.includes('<!DOCTYPE')) {
-        return NextResponse.json(
-          {
-            error: 'WooCommerce API returned an HTML page instead of JSON',
-            details: process.env.NODE_ENV === 'development' 
-              ? `The API URL "${apiUrl}" appears to be incorrect. It should point to your WooCommerce REST API endpoint (e.g., https://yourstore.com/wp-json/wc/v3). Please verify the API URL in admin settings.` 
-              : 'Please check your WooCommerce API URL configuration in admin settings.',
-          },
-          { status: 500 }
-        );
+        woocommerceResponse = await fetch(subscriptionsUrl.toString(), {
+          method: 'GET',
+          headers: authHeaders,
+        });
       }
 
-      // Check if it's a 404 - might mean subscriptions plugin is not installed
-      if (woocommerceResponse.status === 404) {
+      if (!woocommerceResponse.ok) {
+        if (woocommerceResponse.status === 404) {
+          throw new Error('WooCommerce Subscriptions plugin not found or not active');
+        }
+        throw new Error(`WooCommerce API returned ${woocommerceResponse.status}`);
+      }
+
+      // Parse JSON response
+      const contentType = woocommerceResponse.headers.get('content-type');
+      const isJson = contentType && contentType.includes('application/json');
+      
+      if (!isJson) {
+        throw new Error('WooCommerce API returned invalid response format');
+      }
+
+      const subscriptions = await woocommerceResponse.json();
+      let subscriptionsArray = Array.isArray(subscriptions) ? subscriptions : [subscriptions];
+
+      // Filter by email if we don't have customerId
+      if (!customerId && subscriptionsArray.length > 0) {
+        subscriptionsArray = subscriptionsArray.filter((sub: any) => {
+          const subEmail = (
+            sub.billing?.email?.toLowerCase().trim() ||
+            sub.customer_email?.toLowerCase().trim() ||
+            sub.email?.toLowerCase().trim() ||
+            ''
+          );
+          return subEmail === email;
+        });
+      }
+
+      // If we have customerId but no subscriptions, try fetching without customer filter
+      if (customerId && subscriptionsArray.length === 0) {
+        const allSubscriptionsUrl = new URL(`${apiUrl}/subscriptions`);
+        allSubscriptionsUrl.searchParams.append('per_page', '100');
+        
+        const allSubscriptionsResponse = await fetch(allSubscriptionsUrl.toString(), {
+          method: 'GET',
+          headers: authHeaders,
+        });
+
+        if (allSubscriptionsResponse.ok) {
+          const contentType = allSubscriptionsResponse.headers.get('content-type');
+          const isJson = contentType && contentType.includes('application/json');
+          
+          if (isJson) {
+            const allSubscriptions = await allSubscriptionsResponse.json();
+            const allSubscriptionsArray = Array.isArray(allSubscriptions) ? allSubscriptions : [allSubscriptions];
+            
+            subscriptionsArray = allSubscriptionsArray.filter((sub: any) => {
+              const subEmail = (
+                sub.billing?.email?.toLowerCase().trim() ||
+                sub.customer_email?.toLowerCase().trim() ||
+                sub.email?.toLowerCase().trim() ||
+                ''
+              );
+              return subEmail === email;
+            });
+          }
+        }
+      }
+
+      // Enrich subscriptions with all status information
+      const enrichedSubscriptions = subscriptionsArray.map((sub: any) => ({
+        ...sub,
+        status: sub.status || 'unknown',
+        date_created: sub.date_created || sub.date_created_gmt || null,
+        date_modified: sub.date_modified || sub.date_modified_gmt || null,
+        next_payment_date: sub.next_payment_date || sub.next_payment_date_gmt || null,
+        end_date: sub.end_date || sub.end_date_gmt || null,
+        trial_end_date: sub.trial_end_date || sub.trial_end_date_gmt || null,
+      }));
+
+      return {
+        success: true,
+        email: email,
+        customerId: customerId || null,
+        count: enrichedSubscriptions.length,
+        subscriptions: enrichedSubscriptions,
+      };
+    }
+
+    // Get WooCommerce settings
+    const settings = await getWooCommerceSettings();
+
+    if (!settings || !settings.woocommerceApiUrl || !settings.woocommerceApiKey || !settings.woocommerceApiSecret) {
+      return NextResponse.json(
+        { error: 'WooCommerce API credentials are not configured. Please configure them in the admin settings.' },
+        { status: 500 }
+      );
+    }
+
+    // Cache miss - fetch fresh data from WooCommerce
+    let responseData;
+    try {
+      responseData = await fetchSubscriptionsFromWooCommerce(normalizedEmail);
+    } catch (error: any) {
+      console.error('Failed to fetch subscriptions from WooCommerce:', error);
+      
+      if (error.message === 'WooCommerce Subscriptions plugin not found or not active') {
         return NextResponse.json(
           {
             error: 'WooCommerce Subscriptions plugin not found or not active',
@@ -227,131 +328,25 @@ export async function GET(request: NextRequest) {
         {
           error: 'Failed to fetch subscriptions from WooCommerce',
           details: process.env.NODE_ENV === 'development' 
-            ? `WooCommerce API returned ${woocommerceResponse.status}: ${woocommerceResponse.statusText}` 
-            : undefined,
-        },
-        { status: woocommerceResponse.status || 500 }
-      );
-    }
-
-    // Parse JSON response
-    try {
-      const responseText = await woocommerceResponse.text();
-      if (!isJson) {
-        console.error('WooCommerce Subscriptions API returned non-JSON response:', responseText.substring(0, 500));
-        
-        // Check if it's an HTML error page
-        if (responseText.includes('<!DOCTYPE') || responseText.includes('<html')) {
-          return NextResponse.json(
-            {
-              error: 'WooCommerce API returned an HTML page instead of JSON',
-              details: process.env.NODE_ENV === 'development' 
-                ? `The API URL "${apiUrl}" appears to be incorrect. It should point to your WooCommerce REST API endpoint (e.g., https://yourstore.com/wp-json/wc/v3). Please verify the API URL in admin settings.` 
-                : 'Please check your WooCommerce API URL configuration in admin settings.',
-            },
-            { status: 500 }
-          );
-        }
-        
-        return NextResponse.json(
-          {
-            error: 'WooCommerce API returned an invalid response format',
-            details: process.env.NODE_ENV === 'development' 
-              ? 'The API returned HTML or non-JSON content. Please check your API URL and credentials.' 
-              : undefined,
-          },
-          { status: 500 }
-        );
-      }
-      subscriptions = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('Failed to parse WooCommerce subscriptions response:', parseError);
-      return NextResponse.json(
-        {
-          error: 'Failed to parse response from WooCommerce API',
-          details: process.env.NODE_ENV === 'development' && parseError instanceof Error
-            ? parseError.message
+            ? error.message 
             : undefined,
         },
         { status: 500 }
       );
     }
 
-    // Handle case where WooCommerce returns a single subscription object instead of array
-    let subscriptionsArray = Array.isArray(subscriptions) ? subscriptions : [subscriptions];
+    // Store in Redis cache (async - don't wait)
+    setCache(cacheKey, responseData, CACHE_TTL.SUBSCRIPTIONS).catch((err) => {
+      console.error('Redis cache set error:', err);
+    });
 
-    // If we don't have customerId, filter subscriptions by email
-    // Check both billing.email and customer_email fields
-    if (!customerId && subscriptionsArray.length > 0) {
-      subscriptionsArray = subscriptionsArray.filter((sub: any) => {
-        const subEmail = (
-          sub.billing?.email?.toLowerCase().trim() ||
-          sub.customer_email?.toLowerCase().trim() ||
-          sub.email?.toLowerCase().trim() ||
-          ''
-        );
-        return subEmail === normalizedEmail;
-      });
-    }
-
-    // If we have customerId but no subscriptions, try fetching without customer filter
-    // and then filter by email (in case customer ID lookup was incorrect)
-    if (customerId && subscriptionsArray.length === 0) {
-      console.log('No subscriptions found with customer ID, trying to fetch all and filter by email');
-      const allSubscriptionsUrl = new URL(`${apiUrl}/subscriptions`);
-      allSubscriptionsUrl.searchParams.append('per_page', '100');
-      
-      const allSubscriptionsResponse = await fetch(allSubscriptionsUrl.toString(), {
-        method: 'GET',
-        headers: authHeaders,
-      });
-
-      if (allSubscriptionsResponse.ok) {
-        const contentType = allSubscriptionsResponse.headers.get('content-type');
-        const isJson = contentType && contentType.includes('application/json');
-        
-        if (isJson) {
-          try {
-            const allSubscriptions = await allSubscriptionsResponse.json();
-            const allSubscriptionsArray = Array.isArray(allSubscriptions) ? allSubscriptions : [allSubscriptions];
-            
-            // Filter by email
-            subscriptionsArray = allSubscriptionsArray.filter((sub: any) => {
-              const subEmail = (
-                sub.billing?.email?.toLowerCase().trim() ||
-                sub.customer_email?.toLowerCase().trim() ||
-                sub.email?.toLowerCase().trim() ||
-                ''
-              );
-              return subEmail === normalizedEmail;
-            });
-          } catch (parseError) {
-            console.error('Failed to parse all subscriptions response:', parseError);
-          }
-        }
-      }
-    }
-
-    // Ensure all subscriptions include all status information
-    // Include all status fields: status, date_created, date_modified, next_payment_date, etc.
-    const enrichedSubscriptions = subscriptionsArray.map((sub: any) => ({
-      ...sub,
-      // Ensure all status-related fields are included
-      status: sub.status || 'unknown',
-      date_created: sub.date_created || sub.date_created_gmt || null,
-      date_modified: sub.date_modified || sub.date_modified_gmt || null,
-      next_payment_date: sub.next_payment_date || sub.next_payment_date_gmt || null,
-      end_date: sub.end_date || sub.end_date_gmt || null,
-      trial_end_date: sub.trial_end_date || sub.trial_end_date_gmt || null,
-      // Include all subscription statuses: active, on-hold, cancelled, expired, pending-cancel, etc.
-    }));
-
+    const responseTime = Date.now() - startTime;
     return NextResponse.json({
-      success: true,
-      email: normalizedEmail,
-      customerId: customerId || null,
-      count: enrichedSubscriptions.length,
-      subscriptions: enrichedSubscriptions,
+      ...responseData,
+      fromCache: false,
+      stale: false,
+      refreshing: false,
+      responseTime: `${responseTime}ms`,
     });
   } catch (error) {
     console.error('Get WooCommerce subscriptions error:', error);
@@ -820,6 +815,10 @@ export async function POST(request: NextRequest) {
       end_date: updatedSubscription.end_date || updatedSubscription.end_date_gmt || null,
       trial_end_date: updatedSubscription.trial_end_date || updatedSubscription.trial_end_date_gmt || null,
     };
+
+    // Invalidate cache after subscription update
+    const cacheKey = buildSubscriptionsCacheKey(normalizedEmail);
+    deleteCache(cacheKey).catch(() => {}); // Ignore errors
 
     return NextResponse.json({
       success: true,

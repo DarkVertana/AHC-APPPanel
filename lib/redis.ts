@@ -28,6 +28,9 @@ export const CACHE_TTL = {
   BLOGS: 30 * 60,          // 30 minutes
   SETTINGS: 10 * 60,       // 10 minutes
   API_KEYS: 2 * 60,        // 2 minutes
+  ORDERS: 3 * 60,          // 3 minutes (orders change frequently)
+  SUBSCRIPTIONS: 5 * 60,   // 5 minutes (subscriptions change less frequently)
+  BILLING_ADDRESS: 10 * 60, // 10 minutes (billing address changes infrequently)
 } as const;
 
 // Cache key prefixes
@@ -36,6 +39,9 @@ export const CACHE_KEYS = {
   BLOGS: 'wp:blogs',
   SETTINGS: 'app:settings',
   API_KEYS: 'app:apikeys',
+  ORDERS: 'wc:orders',
+  SUBSCRIPTIONS: 'wc:subscriptions',
+  BILLING_ADDRESS: 'wc:billing',
 } as const;
 
 /**
@@ -51,6 +57,68 @@ export async function getCache<T>(key: string): Promise<T | null> {
     console.error('Redis GET error:', error);
     return null;
   }
+}
+
+/**
+ * Get cached data with stale detection (for stale-while-revalidate pattern)
+ * @param key - Cache key
+ * @param staleThreshold - TTL threshold in seconds to consider data stale (default: 30)
+ * @returns Object with data, isStale flag, and ttl remaining
+ */
+export async function getCacheWithStale<T>(
+  key: string,
+  staleThreshold: number = 30
+): Promise<{ data: T | null; isStale: boolean; ttl: number }> {
+  try {
+    // Get data and TTL in parallel
+    const [data, ttl] = await Promise.all([
+      redis.get<T>(key),
+      redis.ttl(key),
+    ]);
+
+    if (data === null) {
+      return { data: null, isStale: false, ttl: -1 };
+    }
+
+    // TTL < 0 means key doesn't exist or has no expiration
+    // TTL < staleThreshold means data is stale (expiring soon)
+    const isStale = ttl >= 0 && ttl < staleThreshold;
+
+    return { data, isStale, ttl };
+  } catch (error) {
+    console.error('Redis getCacheWithStale error:', error);
+    return { data: null, isStale: false, ttl: -1 };
+  }
+}
+
+/**
+ * Refresh cache in background (non-blocking)
+ * Fetches fresh data and updates Redis cache asynchronously
+ * @param key - Cache key
+ * @param fetchFn - Function to fetch fresh data
+ * @param ttl - Time to live in seconds
+ */
+export async function refreshCacheInBackground<T>(
+  key: string,
+  fetchFn: () => Promise<T>,
+  ttl: number
+): Promise<void> {
+  // Run asynchronously without blocking
+  Promise.resolve().then(async () => {
+    try {
+      const freshData = await fetchFn();
+      await setCache(key, freshData, ttl);
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`Background cache refresh completed for key: ${key}`);
+      }
+    } catch (error) {
+      // Silently handle errors - don't block or throw
+      console.error(`Background cache refresh failed for key ${key}:`, error);
+    }
+  }).catch((err) => {
+    // Catch any unhandled errors
+    console.error(`Background refresh promise error for key ${key}:`, err);
+  });
 }
 
 /**
@@ -163,6 +231,31 @@ export function buildProductsCacheKey(params: {
  */
 export function buildBlogsCacheKey(): string {
   return `${CACHE_KEYS.BLOGS}:latest2`;
+}
+
+/**
+ * Build cache key for orders by email
+ */
+export function buildOrdersCacheKey(email: string): string {
+  const normalizedEmail = email.toLowerCase().trim();
+  // Use hash of email to avoid special characters in cache key
+  return `${CACHE_KEYS.ORDERS}:${normalizedEmail}`;
+}
+
+/**
+ * Build cache key for subscriptions by email
+ */
+export function buildSubscriptionsCacheKey(email: string): string {
+  const normalizedEmail = email.toLowerCase().trim();
+  return `${CACHE_KEYS.SUBSCRIPTIONS}:${normalizedEmail}`;
+}
+
+/**
+ * Build cache key for billing address by email
+ */
+export function buildBillingAddressCacheKey(email: string): string {
+  const normalizedEmail = email.toLowerCase().trim();
+  return `${CACHE_KEYS.BILLING_ADDRESS}:${normalizedEmail}`;
 }
 
 /**

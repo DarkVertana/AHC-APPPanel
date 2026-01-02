@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
-import { getCache, setCache, buildProductsCacheKey, CACHE_TTL, CACHE_KEYS } from '@/lib/redis';
+import { getCacheWithStale, setCache, buildProductsCacheKey, CACHE_TTL, refreshCacheInBackground } from '@/lib/redis';
 
 // Cache settings for 5 minutes to reduce database queries
 let cachedSettings: any = null;
@@ -77,26 +77,60 @@ export async function GET(request: NextRequest) {
       status,
     });
 
-    // Check Redis cache first (unless nocache is set)
+    // Check Redis cache with stale detection (unless nocache is set)
     if (!noCache) {
-      const cachedData = await getCache<any>(cacheKey);
-      if (cachedData) {
+      const cacheResult = await getCacheWithStale<any>(cacheKey, 30); // 30 seconds stale threshold
+      
+      if (cacheResult.data) {
         const responseTime = Date.now() - startTime;
+        
+        // If data is stale, trigger background refresh and return stale data immediately
+        if (cacheResult.isStale) {
+          // Trigger background refresh (non-blocking)
+          refreshCacheInBackground(
+            cacheKey,
+            async () => {
+              // This function will be called in background to fetch fresh data
+              return await fetchProductsFromWooCommerce({
+                settings: await getWooCommerceSettings(),
+                page: pageNum,
+                perPage: perPageNum,
+                search,
+                category,
+                status,
+              });
+            },
+            search ? CACHE_TTL.PRODUCTS_SEARCH : CACHE_TTL.PRODUCTS
+          ).catch(() => {}); // Ignore errors
+
+          return NextResponse.json({
+            ...cacheResult.data,
+            fromCache: true,
+            stale: true,
+            refreshing: true,
+            responseTime: `${responseTime}ms`,
+          });
+        }
+
+        // Fresh cache hit - return immediately
         return NextResponse.json({
-          ...cachedData,
+          ...cacheResult.data,
           fromCache: true,
+          stale: false,
+          refreshing: false,
           responseTime: `${responseTime}ms`,
         });
       }
     }
 
-    // Get WooCommerce settings from database (with local caching)
-    let settings;
-    const now = Date.now();
-    if (cachedSettings && (now - settingsCacheTime) < SETTINGS_CACHE_TTL) {
-      settings = cachedSettings;
-    } else {
-      settings = await prisma.settings.findUnique({
+    // Helper function to get WooCommerce settings
+    async function getWooCommerceSettings() {
+      const now = Date.now();
+      if (cachedSettings && (now - settingsCacheTime) < SETTINGS_CACHE_TTL) {
+        return cachedSettings;
+      }
+      
+      const settings = await prisma.settings.findUnique({
         where: { id: 'settings' },
         select: {
           woocommerceApiUrl: true,
@@ -104,11 +138,138 @@ export async function GET(request: NextRequest) {
           woocommerceApiSecret: true,
         },
       });
+      
       if (settings) {
         cachedSettings = settings;
         settingsCacheTime = now;
       }
+      
+      return settings;
     }
+
+    // Helper function to fetch products from WooCommerce
+    async function fetchProductsFromWooCommerce(params: {
+      settings: any;
+      page: number;
+      perPage: number;
+      search?: string | null;
+      category?: string | null;
+      status: string;
+    }) {
+      const { settings, page, perPage, search, category, status } = params;
+
+      if (!settings || !settings.woocommerceApiUrl || !settings.woocommerceApiKey || !settings.woocommerceApiSecret) {
+        throw new Error('WooCommerce API credentials are not configured');
+      }
+
+      // Prepare WooCommerce API URL
+      let apiUrl = settings.woocommerceApiUrl.endsWith('/') 
+        ? settings.woocommerceApiUrl.slice(0, -1) 
+        : settings.woocommerceApiUrl;
+      
+      if (!apiUrl.includes('/wp-json/wc/')) {
+        const baseUrl = apiUrl.split('/wp-json')[0] || apiUrl;
+        apiUrl = `${baseUrl}/wp-json/wc/v3`;
+      }
+      
+      if (!apiUrl.includes('/wp-json/wc/')) {
+        throw new Error('Invalid WooCommerce API URL format');
+      }
+
+      // Create Basic Auth header
+      const authString = Buffer.from(`${settings.woocommerceApiKey}:${settings.woocommerceApiSecret}`).toString('base64');
+      const authHeaders = {
+        'Authorization': `Basic ${authString}`,
+        'Accept': 'application/json',
+      };
+
+      // Build products URL
+      const productsUrl = new URL(`${apiUrl}/products`);
+      productsUrl.searchParams.set('per_page', perPage.toString());
+      productsUrl.searchParams.set('page', page.toString());
+      productsUrl.searchParams.set('status', status);
+      
+      if (search) productsUrl.searchParams.set('search', search);
+      if (category) {
+        const categoryNum = parseInt(category, 10);
+        if (!isNaN(categoryNum)) productsUrl.searchParams.set('category', categoryNum.toString());
+      }
+
+      // Fetch from WooCommerce API
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+      let woocommerceResponse: Response;
+      try {
+        woocommerceResponse = await fetch(productsUrl.toString(), {
+          method: 'GET',
+          headers: authHeaders,
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        if (fetchError.name === 'AbortError') {
+          throw new Error('Request timeout');
+        }
+        throw fetchError;
+      }
+
+      if (!woocommerceResponse.ok) {
+        throw new Error(`WooCommerce API returned ${woocommerceResponse.status}`);
+      }
+
+      // Parse JSON response
+      const contentType = woocommerceResponse.headers.get('content-type');
+      const isJson = contentType && contentType.includes('application/json');
+      
+      if (!isJson) {
+        throw new Error('WooCommerce API returned invalid response format');
+      }
+
+      const products = await woocommerceResponse.json();
+      const productsArray = Array.isArray(products) ? products : [products];
+      const totalProducts = woocommerceResponse.headers.get('x-wp-total');
+      const totalPages = woocommerceResponse.headers.get('x-wp-totalpages');
+
+      // Transform products
+      const enrichedProducts = productsArray.map((p: any) => ({
+        id: p.id ?? null,
+        name: p.name ?? '',
+        slug: p.slug ?? '',
+        permalink: p.permalink ?? '',
+        type: p.type ?? 'simple',
+        status: p.status ?? 'publish',
+        featured: p.featured ?? false,
+        description: p.description ?? '',
+        short_description: p.short_description ?? '',
+        sku: p.sku ?? '',
+        price: p.price ?? '0',
+        regular_price: p.regular_price ?? '0',
+        sale_price: p.sale_price ?? '',
+        on_sale: p.on_sale ?? false,
+        stock_status: p.stock_status ?? 'instock',
+        stock_quantity: p.stock_quantity ?? null,
+        images: p.images ?? [],
+        categories: p.categories ?? [],
+        tags: p.tags ?? [],
+        date_created: p.date_created ?? p.date_created_gmt ?? null,
+        date_modified: p.date_modified ?? p.date_modified_gmt ?? null,
+      }));
+
+      return {
+        success: true,
+        page,
+        per_page: perPage,
+        total: totalProducts ? parseInt(totalProducts, 10) : enrichedProducts.length,
+        total_pages: totalPages ? parseInt(totalPages, 10) : 1,
+        count: enrichedProducts.length,
+        products: enrichedProducts,
+      };
+    }
+
+    // Get WooCommerce settings
+    const settings = await getWooCommerceSettings();
 
     if (!settings || !settings.woocommerceApiUrl || !settings.woocommerceApiKey || !settings.woocommerceApiSecret) {
       return NextResponse.json(
@@ -117,62 +278,21 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Prepare WooCommerce API URL
-    let apiUrl = settings.woocommerceApiUrl.endsWith('/') 
-      ? settings.woocommerceApiUrl.slice(0, -1) 
-      : settings.woocommerceApiUrl;
-    
-    if (!apiUrl.includes('/wp-json/wc/')) {
-      const baseUrl = apiUrl.split('/wp-json')[0] || apiUrl;
-      apiUrl = `${baseUrl}/wp-json/wc/v3`;
-    }
-    
-    if (!apiUrl.includes('/wp-json/wc/')) {
-      return NextResponse.json(
-        {
-          error: 'Invalid WooCommerce API URL format',
-          details: process.env.NODE_ENV === 'development' 
-            ? `The API URL "${settings.woocommerceApiUrl}" is invalid.` 
-            : 'Please check your WooCommerce API URL in admin settings.',
-        },
-        { status: 400 }
-      );
-    }
-
-    // Create Basic Auth header
-    const authString = Buffer.from(`${settings.woocommerceApiKey}:${settings.woocommerceApiSecret}`).toString('base64');
-    const authHeaders = {
-      'Authorization': `Basic ${authString}`,
-      'Accept': 'application/json',
-    };
-
-    // Build products URL
-    const productsUrl = new URL(`${apiUrl}/products`);
-    productsUrl.searchParams.set('per_page', perPageNum.toString());
-    productsUrl.searchParams.set('page', pageNum.toString());
-    productsUrl.searchParams.set('status', status);
-    
-    if (search) productsUrl.searchParams.set('search', search);
-    if (category) {
-      const categoryNum = parseInt(category, 10);
-      if (!isNaN(categoryNum)) productsUrl.searchParams.set('category', categoryNum.toString());
-    }
-
-    // Fetch from WooCommerce API with timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout for WooCommerce
-
-    let woocommerceResponse: Response;
+    // Cache miss - fetch fresh data from WooCommerce
+    let responseData;
     try {
-      woocommerceResponse = await fetch(productsUrl.toString(), {
-        method: 'GET',
-        headers: authHeaders,
-        signal: controller.signal,
+      responseData = await fetchProductsFromWooCommerce({
+        settings,
+        page: pageNum,
+        perPage: perPageNum,
+        search,
+        category,
+        status,
       });
-      clearTimeout(timeoutId);
-    } catch (fetchError: any) {
-      clearTimeout(timeoutId);
-      if (fetchError.name === 'AbortError') {
+    } catch (error: any) {
+      console.error('Failed to fetch products from WooCommerce:', error);
+      
+      if (error.message === 'Request timeout') {
         return NextResponse.json(
           {
             error: 'Request timeout. WooCommerce API took too long to respond.',
@@ -183,88 +303,26 @@ export async function GET(request: NextRequest) {
           { status: 504 }
         );
       }
-      throw fetchError;
-    }
 
-    // Check response
-    const contentType = woocommerceResponse.headers.get('content-type');
-    const isJson = contentType && contentType.includes('application/json');
-
-    if (!woocommerceResponse.ok) {
-      const errorText = await woocommerceResponse.text();
-      console.error('WooCommerce Products API error:', {
-        status: woocommerceResponse.status,
-        error: errorText.substring(0, 500),
-      });
+      if (error.message.includes('WooCommerce API returned')) {
+        return NextResponse.json(
+          {
+            error: 'Failed to fetch products from WooCommerce',
+            details: process.env.NODE_ENV === 'development' 
+              ? error.message 
+              : undefined,
+          },
+          { status: 500 }
+        );
+      }
 
       return NextResponse.json(
         {
           error: 'Failed to fetch products from WooCommerce',
-          details: process.env.NODE_ENV === 'development' 
-            ? `WooCommerce API returned ${woocommerceResponse.status}` 
-            : undefined,
         },
-        { status: woocommerceResponse.status || 500 }
-      );
-    }
-
-    // Parse JSON response
-    let products;
-    try {
-      if (!isJson) {
-        return NextResponse.json(
-          { error: 'WooCommerce API returned invalid response format' },
-          { status: 500 }
-        );
-      }
-      products = await woocommerceResponse.json();
-    } catch (parseError) {
-      return NextResponse.json(
-        { error: 'Failed to parse response from WooCommerce API' },
         { status: 500 }
       );
     }
-
-    // Process products
-    const productsArray = Array.isArray(products) ? products : [products];
-    const totalProducts = woocommerceResponse.headers.get('x-wp-total');
-    const totalPages = woocommerceResponse.headers.get('x-wp-totalpages');
-
-    // Transform products (minimal fields)
-    const enrichedProducts = productsArray.map((p: any) => ({
-      id: p.id ?? null,
-      name: p.name ?? '',
-      slug: p.slug ?? '',
-      permalink: p.permalink ?? '',
-      type: p.type ?? 'simple',
-      status: p.status ?? 'publish',
-      featured: p.featured ?? false,
-      description: p.description ?? '',
-      short_description: p.short_description ?? '',
-      sku: p.sku ?? '',
-      price: p.price ?? '0',
-      regular_price: p.regular_price ?? '0',
-      sale_price: p.sale_price ?? '',
-      on_sale: p.on_sale ?? false,
-      stock_status: p.stock_status ?? 'instock',
-      stock_quantity: p.stock_quantity ?? null,
-      images: p.images ?? [],
-      categories: p.categories ?? [],
-      tags: p.tags ?? [],
-      date_created: p.date_created ?? p.date_created_gmt ?? null,
-      date_modified: p.date_modified ?? p.date_modified_gmt ?? null,
-    }));
-
-    // Prepare response data
-    const responseData = {
-      success: true,
-      page: pageNum,
-      per_page: perPageNum,
-      total: totalProducts ? parseInt(totalProducts, 10) : enrichedProducts.length,
-      total_pages: totalPages ? parseInt(totalPages, 10) : 1,
-      count: enrichedProducts.length,
-      products: enrichedProducts,
-    };
 
     // Store in Redis cache (async - don't wait)
     const cacheTTL = search ? CACHE_TTL.PRODUCTS_SEARCH : CACHE_TTL.PRODUCTS;
@@ -276,6 +334,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       ...responseData,
       fromCache: false,
+      stale: false,
+      refreshing: false,
       responseTime: `${responseTime}ms`,
     });
   } catch (error) {
