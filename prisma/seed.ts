@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   // Default admin credentials
-  const adminEmail = 'akshaysihag@alternatehealthclub.com';
+  const adminEmail = 'akshay@alternatehealthclub.com';
   const adminUsername = 'akshaysihag';
   const adminPassword = 'Gsarena27ahcinc.df@856';
 

@@ -9,8 +9,9 @@ import { Redis } from '@upstash/redis';
  * - Edge-optimized for low latency
  * 
  * Cache TTL Strategy:
- * - Products: 5 minutes (frequently updated inventory)
- * - Blogs: 30 minutes (less frequently updated)
+ * - Orders: 3 minutes (orders change frequently)
+ * - Subscriptions: 5 minutes (subscriptions change less frequently)
+ * - Billing Address: 10 minutes (billing address changes infrequently)
  * - Settings: 10 minutes (rarely changes)
  * - API Keys: 2 minutes (security balance)
  */
@@ -23,9 +24,6 @@ const redis = new Redis({
 
 // Cache TTL constants (in seconds)
 export const CACHE_TTL = {
-  PRODUCTS: 5 * 60,        // 5 minutes
-  PRODUCTS_SEARCH: 2 * 60, // 2 minutes for search results
-  BLOGS: 30 * 60,          // 30 minutes
   SETTINGS: 10 * 60,       // 10 minutes
   API_KEYS: 2 * 60,        // 2 minutes
   ORDERS: 3 * 60,          // 3 minutes (orders change frequently)
@@ -35,8 +33,6 @@ export const CACHE_TTL = {
 
 // Cache key prefixes
 export const CACHE_KEYS = {
-  PRODUCTS: 'wc:products',
-  BLOGS: 'wp:blogs',
   SETTINGS: 'app:settings',
   API_KEYS: 'app:apikeys',
   ORDERS: 'wc:orders',
@@ -206,34 +202,6 @@ export async function getCacheOrFetch<T>(
 }
 
 /**
- * Build cache key for products with query params
- */
-export function buildProductsCacheKey(params: {
-  page: number;
-  perPage: number;
-  search?: string | null;
-  category?: string | null;
-  status?: string;
-}): string {
-  const parts = [
-    CACHE_KEYS.PRODUCTS,
-    `p${params.page}`,
-    `pp${params.perPage}`,
-    `s${params.status || 'publish'}`,
-  ];
-  if (params.search) parts.push(`q${params.search}`);
-  if (params.category) parts.push(`c${params.category}`);
-  return parts.join(':');
-}
-
-/**
- * Build cache key for blogs
- */
-export function buildBlogsCacheKey(): string {
-  return `${CACHE_KEYS.BLOGS}:latest2`;
-}
-
-/**
  * Build cache key for orders by email
  */
 export function buildOrdersCacheKey(email: string): string {
@@ -275,24 +243,27 @@ export async function pingRedis(): Promise<boolean> {
  * Get cache statistics
  */
 export async function getCacheStats(): Promise<{
-  productsKeys: number;
-  blogsKeys: number;
+  ordersKeys: number;
+  subscriptionsKeys: number;
+  billingAddressKeys: number;
   settingsKeys: number;
 }> {
   try {
-    const [productsKeys, blogsKeys, settingsKeys] = await Promise.all([
-      redis.keys(`${CACHE_KEYS.PRODUCTS}*`),
-      redis.keys(`${CACHE_KEYS.BLOGS}*`),
+    const [ordersKeys, subscriptionsKeys, billingAddressKeys, settingsKeys] = await Promise.all([
+      redis.keys(`${CACHE_KEYS.ORDERS}*`),
+      redis.keys(`${CACHE_KEYS.SUBSCRIPTIONS}*`),
+      redis.keys(`${CACHE_KEYS.BILLING_ADDRESS}*`),
       redis.keys(`${CACHE_KEYS.SETTINGS}*`),
     ]);
     return {
-      productsKeys: productsKeys.length,
-      blogsKeys: blogsKeys.length,
+      ordersKeys: ordersKeys.length,
+      subscriptionsKeys: subscriptionsKeys.length,
+      billingAddressKeys: billingAddressKeys.length,
       settingsKeys: settingsKeys.length,
     };
   } catch (error) {
     console.error('Redis stats error:', error);
-    return { productsKeys: 0, blogsKeys: 0, settingsKeys: 0 };
+    return { ordersKeys: 0, subscriptionsKeys: 0, billingAddressKeys: 0, settingsKeys: 0 };
   }
 }
 

@@ -36,15 +36,16 @@ export async function GET(request: NextRequest) {
       success: true,
       healthy: isHealthy,
       stats: {
-        products: stats.productsKeys,
-        blogs: stats.blogsKeys,
+        orders: stats.ordersKeys,
+        subscriptions: stats.subscriptionsKeys,
+        billingAddress: stats.billingAddressKeys,
         settings: stats.settingsKeys,
-        total: stats.productsKeys + stats.blogsKeys + stats.settingsKeys,
+        total: stats.ordersKeys + stats.subscriptionsKeys + stats.billingAddressKeys + stats.settingsKeys,
       },
       ttl: {
-        products: '5 minutes',
-        products_search: '2 minutes',
-        blogs: '30 minutes',
+        orders: '3 minutes',
+        subscriptions: '5 minutes',
+        billingAddress: '10 minutes',
         settings: '10 minutes',
       },
     });
@@ -67,7 +68,7 @@ export async function DELETE(request: NextRequest) {
 
     // Get cache type from query params
     const { searchParams } = new URL(request.url);
-    const type = searchParams.get('type'); // 'all', 'products', 'blogs', 'settings'
+    const type = searchParams.get('type'); // 'all', 'orders', 'subscriptions', 'billing_address', 'settings'
 
     let cleared: string[] = [];
     let errors: string[] = [];
@@ -76,32 +77,39 @@ export async function DELETE(request: NextRequest) {
     if (!type || type === 'all') {
       // Clear all caches
       const results = await Promise.all([
-        deleteCacheByPattern(CACHE_KEYS.PRODUCTS),
-        deleteCacheByPattern(CACHE_KEYS.BLOGS),
+        deleteCacheByPattern(CACHE_KEYS.ORDERS),
+        deleteCacheByPattern(CACHE_KEYS.SUBSCRIPTIONS),
+        deleteCacheByPattern(CACHE_KEYS.BILLING_ADDRESS),
         deleteCacheByPattern(CACHE_KEYS.SETTINGS),
         deleteCacheByPattern(CACHE_KEYS.API_KEYS),
       ]);
       
-      if (results[0]) cleared.push('products');
-      else errors.push('products');
+      if (results[0]) cleared.push('orders');
+      else errors.push('orders');
       
-      if (results[1]) cleared.push('blogs');
-      else errors.push('blogs');
+      if (results[1]) cleared.push('subscriptions');
+      else errors.push('subscriptions');
       
-      if (results[2]) cleared.push('settings');
+      if (results[2]) cleared.push('billing_address');
+      else errors.push('billing_address');
+      
+      if (results[3]) cleared.push('settings');
       else errors.push('settings');
       
-      if (results[3]) cleared.push('api_keys');
+      if (results[4]) cleared.push('api_keys');
       else errors.push('api_keys');
     } else {
       // Clear specific cache type
       let pattern: string;
       switch (type) {
-        case 'products':
-          pattern = CACHE_KEYS.PRODUCTS;
+        case 'orders':
+          pattern = CACHE_KEYS.ORDERS;
           break;
-        case 'blogs':
-          pattern = CACHE_KEYS.BLOGS;
+        case 'subscriptions':
+          pattern = CACHE_KEYS.SUBSCRIPTIONS;
+          break;
+        case 'billing_address':
+          pattern = CACHE_KEYS.BILLING_ADDRESS;
           break;
         case 'settings':
           pattern = CACHE_KEYS.SETTINGS;
@@ -111,7 +119,7 @@ export async function DELETE(request: NextRequest) {
           break;
         default:
           return NextResponse.json(
-            { error: 'Invalid cache type. Valid types: all, products, blogs, settings, api_keys' },
+            { error: 'Invalid cache type. Valid types: all, orders, subscriptions, billing_address, settings, api_keys' },
             { status: 400 }
           );
       }
