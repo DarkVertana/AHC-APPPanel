@@ -227,6 +227,14 @@ export function buildBillingAddressCacheKey(email: string): string {
 }
 
 /**
+ * Build cache key for subscription orders by subscription ID and email
+ */
+export function buildSubscriptionOrdersCacheKey(subscriptionId: number, email: string): string {
+  const normalizedEmail = email.toLowerCase().trim();
+  return `wc:subscription_orders:${subscriptionId}:${normalizedEmail}`;
+}
+
+/**
  * Check Redis connection health
  */
 export async function pingRedis(): Promise<boolean> {
