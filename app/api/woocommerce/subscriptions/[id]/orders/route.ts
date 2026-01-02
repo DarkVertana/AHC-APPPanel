@@ -30,11 +30,14 @@ const SETTINGS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const startTime = Date.now();
   
   try {
+    // Await params (Next.js 15+ requires params to be awaited)
+    const { id } = await params;
+    
     // Validate API key
     const apiKey = await validateApiKey(request);
     
@@ -59,7 +62,7 @@ export async function GET(
     }
 
     // Validate and parse subscription ID
-    const subscriptionId = params.id;
+    const subscriptionId = id;
     const subscriptionIdNum = parseInt(subscriptionId, 10);
     
     if (isNaN(subscriptionIdNum)) {
