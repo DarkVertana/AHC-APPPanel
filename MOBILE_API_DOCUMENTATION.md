@@ -11,7 +11,14 @@ This document provides comprehensive documentation for all APIs available for bu
    - [Weight Logs](#weight-logs)
    - [Medication Logs](#medication-logs)
    - [Blogs](#blogs)
+   - [Medicines](#medicines)
+   - [Medicine Categories](#medicine-categories)
    - [WooCommerce Integration](#woocommerce-integration)
+     - [Orders](#13-get-woocommerce-orders)
+     - [Subscriptions](#15-get-woocommerce-subscriptions)
+     - [Billing Address](#17-get-woocommerce-billing-address)
+     - [Blogs](#19-get-woocommerce-blogs)
+     - [Products](#20-get-woocommerce-products)
    - [FAQs](#faqs)
 4. [Error Handling](#error-handling)
 5. [Best Practices](#best-practices)
@@ -584,11 +591,11 @@ DELETE /api/weight-logs/public/clx456def?userId=123
 
 ### Blogs
 
-#### 5. Get Latest Blogs
+#### 5. Get Blogs
 
-Retrieve the latest 2 blog posts from WordPress. This endpoint fetches blogs directly from the WordPress REST API and caches them for optimal performance.
+Retrieve published blog posts.
 
-**Endpoint:** `GET /api/woocommerce/blogs`
+**Endpoint:** `GET /api/blogs/public`
 
 **Headers:**
 ```http
@@ -596,92 +603,270 @@ X-API-Key: ahc_live_sk_your_api_key_here
 ```
 
 **Query Parameters:**
-- `nocache` (string, optional): Set to `'1'` to skip cache and fetch fresh data
+- `id` (string, optional): Get a single blog by ID
+- `page` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Items per page (default: 10, max: 50)
+- `search` (string, optional): Search term (searches title, tagline, description, and tags)
+- `tag` (string, optional): Filter by specific tag
 
 **Example Request:**
 ```http
-GET /api/woocommerce/blogs
-GET /api/woocommerce/blogs?nocache=1
+GET /api/blogs/public?page=1&limit=10
+GET /api/blogs/public?id=clx789ghi
+GET /api/blogs/public?search=health&tag=fitness
 ```
 
-**Response (200 OK):**
+**Response - Single Blog (200 OK):**
 ```json
 {
   "success": true,
-  "count": 2,
+  "blog": {
+    "id": "clx789ghi",
+    "title": "10 Tips for Healthy Living",
+    "tagline": "Discover the secrets to a healthier lifestyle",
+    "description": "<p>Rich HTML content here...</p>",
+    "tags": ["health", "fitness", "wellness"],
+    "featuredImage": "https://example.com/image.jpg",
+    "createdAt": "2024-01-10T08:00:00.000Z",
+    "updatedAt": "2024-01-12T14:30:00.000Z"
+  }
+}
+```
+
+**Response - List of Blogs (200 OK):**
+```json
+{
+  "success": true,
   "blogs": [
     {
-      "id": "123",
+      "id": "clx789ghi",
       "title": "10 Tips for Healthy Living",
-      "tagline": "Discover the secrets to a healthier lifestyle with these proven tips",
-      "description": "Full blog content text without HTML tags, trimmed to 500 characters...",
+      "tagline": "Discover the secrets to a healthier lifestyle",
+      "description": "<p>Rich HTML content here...</p>",
       "tags": ["health", "fitness", "wellness"],
-      "featuredImage": "https://alternatehealthclub.com/wp-content/uploads/2024/01/image.jpg",
+      "featuredImage": "https://example.com/image.jpg",
       "createdAt": "2024-01-10T08:00:00.000Z",
-      "updatedAt": "2024-01-12T14:30:00.000Z",
-      "link": "https://alternatehealthclub.com/blog/10-tips-healthy-living",
-      "slug": "10-tips-healthy-living"
-    },
-    {
-      "id": "122",
-      "title": "Nutrition Guide for Beginners",
-      "tagline": "Start your nutrition journey with this comprehensive guide",
-      "description": "Learn the basics of nutrition and how to make healthy food choices...",
-      "tags": ["nutrition", "health", "beginner"],
-      "featuredImage": "https://alternatehealthclub.com/wp-content/uploads/2024/01/nutrition.jpg",
-      "createdAt": "2024-01-08T10:00:00.000Z",
-      "updatedAt": "2024-01-09T15:20:00.000Z",
-      "link": "https://alternatehealthclub.com/blog/nutrition-guide-beginners",
-      "slug": "nutrition-guide-beginners"
+      "updatedAt": "2024-01-12T14:30:00.000Z"
     }
   ],
-  "fromCache": true,
-  "stale": false,
-  "refreshing": false,
-  "responseTime": "45ms"
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 50,
+    "totalPages": 5,
+    "hasNextPage": true,
+    "hasPreviousPage": false
+  }
+}
+```
+
+**Important Notes:**
+- Only published blogs are returned
+- The `description` field contains HTML content that should be rendered in a WebView or HTML renderer
+- Tags are returned as an array of strings
+
+**Error Responses:**
+- `401 Unauthorized`: Invalid or missing API key
+- `404 Not Found`: Blog not found or not published (when using `id` parameter)
+- `500 Internal Server Error`: Server error
+
+---
+
+### Medicines
+
+#### 6. Get Medicines
+
+Retrieve active medicines/products.
+
+**Endpoint:** `GET /api/medicines/public`
+
+**Headers:**
+```http
+X-API-Key: ahc_live_sk_your_api_key_here
+```
+
+**Query Parameters:**
+- `id` (string, optional): Get a single medicine by ID
+- `page` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Items per page (default: 10, max: 50)
+- `search` (string, optional): Search term (searches title, tagline, and description)
+- `categoryId` (number, optional): Filter by category ID
+
+**Example Request:**
+```http
+GET /api/medicines/public?page=1&limit=10
+GET /api/medicines/public?id=clx123abc
+GET /api/medicines/public?categoryId=1&search=vitamin
+```
+
+**Response - Single Medicine (200 OK):**
+```json
+{
+  "success": true,
+  "medicine": {
+    "id": "clx123abc",
+    "categoryId": 1,
+    "category": {
+      "id": 1,
+      "title": "Weight Loss",
+      "tagline": "Accelerate Your Metabolism Naturally",
+      "icon": "/medicine/category-icons/1766203299813_icon.png"
+    },
+    "title": "Premium Fat Burner",
+    "tagline": "Advanced weight loss formula",
+    "description": "Detailed product description...",
+    "image": "data:image/png;base64,iVBORw0KGgo...",
+    "url": "https://example.com/product/premium-fat-burner",
+    "price": 29.99,
+    "createdAt": "2024-01-10T08:00:00.000Z",
+    "updatedAt": "2024-01-12T14:30:00.000Z"
+  }
+}
+```
+
+**Response - List of Medicines (200 OK):**
+```json
+{
+  "success": true,
+  "medicines": [
+    {
+      "id": "clx123abc",
+      "categoryId": 1,
+      "category": {
+        "id": 1,
+        "title": "Weight Loss",
+        "tagline": "Accelerate Your Metabolism Naturally",
+        "icon": "/medicine/category-icons/1766203299813_icon.png"
+      },
+      "title": "Premium Fat Burner",
+      "tagline": "Advanced weight loss formula",
+      "description": "Detailed product description...",
+      "image": "data:image/png;base64,iVBORw0KGgo...",
+      "url": "https://example.com/product/premium-fat-burner",
+      "price": 29.99,
+      "createdAt": "2024-01-10T08:00:00.000Z",
+      "updatedAt": "2024-01-12T14:30:00.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 25,
+    "totalPages": 3,
+    "hasNextPage": true,
+    "hasPreviousPage": false
+  }
 }
 ```
 
 **Response Fields:**
-- `success` (boolean): Indicates if the request was successful
-- `count` (number): Number of blogs returned (always 2)
-- `blogs` (array): Array of blog objects
-  - `id` (string): WordPress post ID
-  - `title` (string): Blog post title
-  - `tagline` (string): Excerpt/tagline (first 200 characters, HTML stripped)
-  - `description` (string): Blog content preview (first 500 characters, HTML stripped)
-  - `tags` (array): Array of tag names as strings
-  - `featuredImage` (string): Full URL to the featured image (or empty string if none)
-  - `createdAt` (string): ISO 8601 timestamp of post creation
-  - `updatedAt` (string): ISO 8601 timestamp of last modification
-  - `link` (string): Full URL to the blog post on WordPress
-  - `slug` (string): URL-friendly slug for the blog post
-- `fromCache` (boolean): Indicates if response was served from cache
-- `stale` (boolean): Indicates if cached data was stale (expiring soon)
-- `refreshing` (boolean): Indicates if background refresh is in progress
-- `responseTime` (string): Server processing time in milliseconds
+- `id` (string): Unique medicine identifier
+- `categoryId` (number): ID of the medicine category
+- `category` (object): Category information including `id`, `title`, `tagline`, and `icon`
+- `title` (string): Medicine/product title
+- `tagline` (string, nullable): Short tagline or subtitle
+- `description` (string, nullable): Detailed product description
+- `image` (string, nullable): Base64-encoded image data URL
+- `url` (string, nullable): Product URL or external link
+- `price` (number, nullable): Price in USD. Can be `null` if not set
+- `createdAt` (string): ISO 8601 timestamp of creation
+- `updatedAt` (string): ISO 8601 timestamp of last update
 
 **Important Notes:**
-- Always returns the latest 2 published blog posts ordered by date (newest first)
-- Blogs are fetched from WordPress REST API: `https://alternatehealthclub.com/wp-json/wp/v2/posts`
-- Data is cached in Redis for 30 minutes with stale-while-revalidate pattern
-- If cache is stale (expiring within 30 seconds), stale data is served immediately while fresh data is fetched in the background
-- HTML tags are automatically stripped from `tagline` and `description` fields
-- Featured images are absolute URLs from WordPress
-- Use the `link` field to navigate to the full blog post on WordPress
-
-**Performance:**
-- Cache hits: <50ms response time
-- Cache misses: ~2000ms (first request, then cached)
-- Stale cache: <50ms (served immediately, refreshed in background)
+- Only active medicines are returned
+- Images are stored as Base64 data URLs
+- Each medicine includes its category information with icon
+- Category icons are returned as relative paths (e.g., `/medicine/category-icons/filename.png`) and should be resolved to full URLs on the client side
+- Price is optional and may be `null` if not set. When present, it represents the price in USD (e.g., `29.99` for $29.99)
 
 **Error Responses:**
 - `401 Unauthorized`: Invalid or missing API key
-- `500 Internal Server Error`: Server error or WordPress API unavailable
-- `504 Gateway Timeout`: WordPress API took too long to respond (>8 seconds)
+- `404 Not Found`: Medicine not found or not active (when using `id` parameter)
+- `500 Internal Server Error`: Server error
 
 ---
 
+### Medicine Categories
+
+#### 7. Get Medicine Categories
+
+Retrieve medicine categories.
+
+**Endpoint:** `GET /api/medicine-categories/public`
+
+**Headers:**
+```http
+X-API-Key: ahc_live_sk_your_api_key_here
+```
+
+**Query Parameters:**
+- `id` (number, optional): Get a single category by ID
+- `page` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Items per page (default: 50, max: 100)
+- `search` (string, optional): Search term (searches title and tagline)
+
+**Example Request:**
+```http
+GET /api/medicine-categories/public?page=1&limit=50
+GET /api/medicine-categories/public?id=1
+GET /api/medicine-categories/public?search=weight
+```
+
+**Response - Single Category (200 OK):**
+```json
+{
+  "success": true,
+  "category": {
+    "id": 1,
+    "title": "Weight Loss",
+    "tagline": "Accelerate Your Metabolism Naturally",
+    "icon": "/medicine/category-icons/1766203299813_icon.png",
+    "medicineCount": 15,
+    "createdAt": "2024-01-10T08:00:00.000Z",
+    "updatedAt": "2024-01-12T14:30:00.000Z"
+  }
+}
+```
+
+**Response - List of Categories (200 OK):**
+```json
+{
+  "success": true,
+  "categories": [
+    {
+      "id": 1,
+      "title": "Weight Loss",
+      "tagline": "Accelerate Your Metabolism Naturally",
+      "icon": "/medicine/category-icons/1766203299813_icon.png",
+      "medicineCount": 15,
+      "createdAt": "2024-01-10T08:00:00.000Z",
+      "updatedAt": "2024-01-12T14:30:00.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 50,
+    "total": 10,
+    "totalPages": 1,
+    "hasNextPage": false,
+    "hasPreviousPage": false
+  }
+}
+```
+
+**Important Notes:**
+- Category IDs are numeric and start from 1
+- Each category includes the count of medicines in that category
+- Category icons are returned as relative paths (e.g., `/medicine/category-icons/filename.png`) and should be resolved to full URLs on the client side
+- The `icon` field may be `null` if no icon has been uploaded for the category
+
+**Error Responses:**
+- `400 Bad Request`: Invalid category ID format
+- `401 Unauthorized`: Invalid or missing API key
+- `404 Not Found`: Category not found (when using `id` parameter)
+- `500 Internal Server Error`: Server error
+
+---
 
 ### Push Notifications
 
@@ -1429,6 +1614,255 @@ X-API-Key: ahc_live_sk_your_api_key_here
 
 ---
 
+#### 19. Get WooCommerce Blogs
+
+Retrieve the latest 2 blog posts from WordPress REST API.
+
+**Endpoint:** `GET /api/woocommerce/blogs`
+
+**Headers:**
+```http
+X-API-Key: ahc_live_sk_your_api_key_here
+```
+
+**Query Parameters:**
+- `nocache` (string, optional): Skip cache if set to '1' (default: uses cache)
+
+**Example Request:**
+```http
+GET /api/woocommerce/blogs
+GET /api/woocommerce/blogs?nocache=1
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "count": 2,
+  "blogs": [
+    {
+      "id": "123",
+      "title": "10 Tips for Healthy Living",
+      "tagline": "Discover the secrets to a healthier lifestyle with these proven tips",
+      "description": "Learn about the best practices for maintaining a healthy lifestyle...",
+      "tags": ["health", "fitness", "wellness"],
+      "featuredImage": "https://alternatehealthclub.com/wp-content/uploads/2024/01/health-tips.jpg",
+      "createdAt": "2024-01-15T10:30:00.000Z",
+      "updatedAt": "2024-01-15T14:20:00.000Z",
+      "link": "https://alternatehealthclub.com/2024/01/10-tips-for-healthy-living/",
+      "slug": "10-tips-for-healthy-living"
+    },
+    {
+      "id": "122",
+      "title": "Understanding Nutrition Basics",
+      "tagline": "A comprehensive guide to understanding nutrition fundamentals",
+      "description": "Nutrition is the foundation of good health. This guide covers...",
+      "tags": ["nutrition", "health"],
+      "featuredImage": "https://alternatehealthclub.com/wp-content/uploads/2024/01/nutrition.jpg",
+      "createdAt": "2024-01-14T08:00:00.000Z",
+      "updatedAt": "2024-01-14T09:15:00.000Z",
+      "link": "https://alternatehealthclub.com/2024/01/understanding-nutrition-basics/",
+      "slug": "understanding-nutrition-basics"
+    }
+  ],
+  "fromCache": true,
+  "stale": false,
+  "refreshing": false,
+  "responseTime": "45ms"
+}
+```
+
+**Response Fields:**
+- `success` (boolean): Indicates if the request was successful
+- `count` (number): Number of blogs returned (always 2 or less)
+- `blogs` (array): Array of blog post objects
+  - `id` (string): WordPress post ID
+  - `title` (string): Blog post title
+  - `tagline` (string): Excerpt or tagline (first 200 characters, HTML stripped)
+  - `description` (string): Content description (first 500 characters, HTML stripped)
+  - `tags` (array): Array of tag names
+  - `featuredImage` (string): URL of the featured image
+  - `createdAt` (string): ISO 8601 timestamp of when the post was created
+  - `updatedAt` (string): ISO 8601 timestamp of when the post was last modified
+  - `link` (string): Full URL to the blog post
+  - `slug` (string): URL-friendly slug
+- `fromCache` (boolean): Indicates if the response was served from cache
+- `stale` (boolean): Indicates if the cached data is stale (being refreshed in background)
+- `refreshing` (boolean): Indicates if a background refresh is in progress
+- `responseTime` (string): Server response time in milliseconds
+
+**Important Notes:**
+- Always returns the latest 2 blog posts from WordPress
+- Blogs are fetched from `https://alternatehealthclub.com/wp-json/wp/v2/posts`
+- Response is cached in Redis for 30 minutes for optimal performance
+- Stale-while-revalidate pattern: If cache is stale (< 30 seconds until expiration), stale data is served immediately while fresh data is fetched in the background
+- Use `nocache=1` to force a fresh fetch from WordPress
+- HTML tags are automatically stripped from `tagline` and `description` fields
+- Featured images are extracted from WordPress media library
+
+**Error Responses:**
+- `401 Unauthorized`: Invalid or missing API key
+- `500 Internal Server Error`: WordPress API error or configuration issue
+- `504 Gateway Timeout`: Request timeout (WordPress API took too long to respond)
+
+---
+
+#### 20. Get WooCommerce Products
+
+Retrieve products from WooCommerce with support for search, category filtering, and pagination.
+
+**Endpoint:** `GET /api/woocommerce/products`
+
+**Headers:**
+```http
+X-API-Key: ahc_live_sk_your_api_key_here
+```
+
+**Query Parameters:**
+- `page` (number, optional): Page number for pagination (default: 1)
+- `per_page` (number, optional): Number of products per page (default: 10, max: 100)
+- `search` (string, optional): Search term to filter products by name
+- `category` (number, optional): Category ID to filter products by category
+- `status` (string, optional): Product status filter (default: 'publish')
+- `nocache` (string, optional): Skip cache if set to '1' (default: uses cache)
+
+**Example Request:**
+```http
+GET /api/woocommerce/products?page=1&per_page=10
+GET /api/woocommerce/products?search=vitamin&per_page=20
+GET /api/woocommerce/products?category=15&page=1&per_page=10
+GET /api/woocommerce/products?nocache=1
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "page": 1,
+  "per_page": 10,
+  "total": 50,
+  "total_pages": 5,
+  "count": 10,
+  "products": [
+    {
+      "id": 123,
+      "name": "Premium Vitamin D3",
+      "slug": "premium-vitamin-d3",
+      "permalink": "https://example.com/product/premium-vitamin-d3/",
+      "type": "simple",
+      "status": "publish",
+      "featured": true,
+      "description": "<p>High-quality Vitamin D3 supplement...</p>",
+      "short_description": "Boost your immune system with premium Vitamin D3",
+      "sku": "VIT-D3-001",
+      "price": "29.99",
+      "regular_price": "29.99",
+      "sale_price": "",
+      "on_sale": false,
+      "stock_status": "instock",
+      "stock_quantity": 100,
+      "images": [
+        {
+          "id": 456,
+          "src": "https://example.com/wp-content/uploads/2024/01/vitamin-d3.jpg",
+          "name": "Premium Vitamin D3",
+          "alt": "Vitamin D3 Supplement"
+        }
+      ],
+      "categories": [
+        {
+          "id": 15,
+          "name": "Vitamins",
+          "slug": "vitamins"
+        }
+      ],
+      "tags": [
+        {
+          "id": 8,
+          "name": "Immune Support",
+          "slug": "immune-support"
+        }
+      ],
+      "date_created": "2024-01-10T08:00:00",
+      "date_modified": "2024-01-12T14:30:00"
+    }
+  ],
+  "fromCache": true,
+  "stale": false,
+  "refreshing": false,
+  "responseTime": "120ms"
+}
+```
+
+**Response Fields:**
+- `success` (boolean): Indicates if the request was successful
+- `page` (number): Current page number
+- `per_page` (number): Number of products per page
+- `total` (number): Total number of products matching the query
+- `total_pages` (number): Total number of pages
+- `count` (number): Number of products in the current response
+- `products` (array): Array of product objects
+  - `id` (number): Product ID
+  - `name` (string): Product name
+  - `slug` (string): URL-friendly slug
+  - `permalink` (string): Full URL to the product page
+  - `type` (string): Product type (e.g., "simple", "variable", "grouped")
+  - `status` (string): Product status (e.g., "publish", "draft")
+  - `featured` (boolean): Whether the product is featured
+  - `description` (string): Full product description (may contain HTML)
+  - `short_description` (string): Short product description
+  - `sku` (string): Stock Keeping Unit
+  - `price` (string): Current price (formatted as string)
+  - `regular_price` (string): Regular price (formatted as string)
+  - `sale_price` (string): Sale price if on sale, empty string otherwise
+  - `on_sale` (boolean): Whether the product is currently on sale
+  - `stock_status` (string): Stock status (e.g., "instock", "outofstock")
+  - `stock_quantity` (number|null): Available stock quantity
+  - `images` (array): Array of product images
+    - `id` (number): Image ID
+    - `src` (string): Image URL
+    - `name` (string): Image name
+    - `alt` (string): Alt text
+  - `categories` (array): Array of product categories
+    - `id` (number): Category ID
+    - `name` (string): Category name
+    - `slug` (string): Category slug
+  - `tags` (array): Array of product tags
+    - `id` (number): Tag ID
+    - `name` (string): Tag name
+    - `slug` (string): Tag slug
+  - `date_created` (string): ISO 8601 timestamp of when the product was created
+  - `date_modified` (string): ISO 8601 timestamp of when the product was last modified
+- `fromCache` (boolean): Indicates if the response was served from cache
+- `stale` (boolean): Indicates if the cached data is stale (being refreshed in background)
+- `refreshing` (boolean): Indicates if a background refresh is in progress
+- `responseTime` (string): Server response time in milliseconds
+
+**Product Categories:**
+- Product categories are included in each product's `categories` array
+- To filter products by category, use the `category` query parameter with the category ID
+- Category IDs can be found in the `categories` array of any product response
+- Categories include `id`, `name`, and `slug` for easy filtering and display
+
+**Important Notes:**
+- WooCommerce API credentials must be configured in admin settings
+- Response is cached in Redis for 5 minutes (2 minutes for search queries) for optimal performance
+- Stale-while-revalidate pattern: If cache is stale (< 30 seconds until expiration), stale data is served immediately while fresh data is fetched in the background
+- Use `nocache=1` to force a fresh fetch from WooCommerce
+- Maximum `per_page` is 100 products per request
+- Search queries have a shorter cache TTL (2 minutes) to ensure more up-to-date results
+- Product prices are returned as strings to preserve formatting (e.g., "29.99" for $29.99)
+- The `description` field may contain HTML that should be rendered appropriately
+- Stock quantities may be `null` if stock management is disabled for the product
+
+**Error Responses:**
+- `400 Bad Request`: Invalid pagination parameters (per_page must be 1-100, page must be positive) or invalid WooCommerce API URL
+- `401 Unauthorized`: Invalid or missing API key
+- `500 Internal Server Error`: WooCommerce API error or configuration issue
+- `504 Gateway Timeout`: Request timeout (WooCommerce API took too long to respond)
+
+---
+
 ## Firebase Cloud Messaging (FCM) Setup
 
 To enable push notifications in your Android app, you need to set up Firebase Cloud Messaging (FCM). Follow these steps:
@@ -1893,7 +2327,7 @@ All API endpoints follow a consistent error response format:
 ```dart
 try {
   final response = await http.get(
-    Uri.parse('$baseUrl/api/woocommerce/blogs'),
+    Uri.parse('$baseUrl/api/blogs/public'),
     headers: {
       'X-API-Key': apiKey,
     },
@@ -1902,9 +2336,6 @@ try {
   if (response.statusCode == 200) {
     final data = json.decode(response.body);
     // Process successful response
-    final blogs = data['blogs'] as List;
-    final fromCache = data['fromCache'] ?? false;
-    // Use blogs data...
   } else if (response.statusCode == 401) {
     // Handle unauthorized - invalid API key
     throw Exception('Invalid API key. Please contact support.');
@@ -2124,18 +2555,22 @@ class ApiService {
     }
   }
 
-  // Get Latest Blogs (from WordPress)
-  // Always returns the latest 2 blog posts from WordPress
+  // Get Blogs
   static Future<Map<String, dynamic>> getBlogs({
-    bool noCache = false,
+    int page = 1,
+    int limit = 10,
+    String? search,
+    String? tag,
   }) async {
-    final queryParams = <String, String>{};
-    if (noCache) {
-      queryParams['nocache'] = '1';
-    }
+    final queryParams = {
+      'page': page.toString(),
+      'limit': limit.toString(),
+      if (search != null) 'search': search,
+      if (tag != null) 'tag': tag,
+    };
 
     final response = await http.get(
-      Uri.parse('$baseUrl/api/woocommerce/blogs').replace(queryParameters: queryParams),
+      Uri.parse('$baseUrl/blogs/public').replace(queryParameters: queryParams),
       headers: headers,
     );
 
@@ -2143,6 +2578,32 @@ class ApiService {
       return json.decode(response.body);
     } else {
       throw Exception('Failed to fetch blogs');
+    }
+  }
+
+  // Get Medicines
+  static Future<Map<String, dynamic>> getMedicines({
+    int page = 1,
+    int limit = 10,
+    int? categoryId,
+    String? search,
+  }) async {
+    final queryParams = {
+      'page': page.toString(),
+      'limit': limit.toString(),
+      if (categoryId != null) 'categoryId': categoryId.toString(),
+      if (search != null) 'search': search,
+    };
+
+    final response = await http.get(
+      Uri.parse('$baseUrl/medicines/public').replace(queryParameters: queryParams),
+      headers: headers,
+    );
+
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else {
+      throw Exception('Failed to fetch medicines');
     }
   }
 }
@@ -2166,7 +2627,21 @@ For API support, issues, or questions:
 
 ## Changelog
 
-### Version 1.9.0 (Current)
+### Version 2.0.0 (Current)
+- **Added WooCommerce Blogs endpoint** (`GET /api/woocommerce/blogs`)
+  - Fetches latest 2 blog posts from WordPress REST API
+  - Redis cached with 30-minute TTL and stale-while-revalidate pattern
+  - Returns blog posts with title, tagline, description, tags, featured images, and links
+- **Added WooCommerce Products endpoint** (`GET /api/woocommerce/products`)
+  - Full product catalog with search, category filtering, and pagination
+  - Redis cached with 5-minute TTL (2 minutes for search queries)
+  - Stale-while-revalidate pattern for optimal performance
+  - Supports filtering by category ID, search terms, and product status
+  - Products include categories, tags, images, pricing, and stock information
+- **Product Categories**: Categories are included in product responses and can be filtered using the `category` query parameter
+- All WooCommerce endpoints now include cache performance indicators (`fromCache`, `stale`, `refreshing`, `responseTime`)
+
+### Version 1.9.0
 - **Migrated to Firebase Cloud Messaging API v1** (no longer using legacy API)
 - Server now uses Firebase Admin SDK which automatically uses FCM API v1
 - Service account credentials required (configured via environment variables)
@@ -2235,7 +2710,7 @@ For API support, issues, or questions:
 
 ---
 
-**Last Updated:** December 2024
+**Last Updated:** January 2025
 
-**API Version:** 1.4.0
+**API Version:** 2.0.0
 
