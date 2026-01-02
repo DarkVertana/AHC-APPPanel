@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey } from '@/lib/middleware';
 
+// Cache blogs for 5 minutes to reduce WordPress API calls
+let cachedBlogs: any = null;
+let blogsCacheTime = 0;
+const BLOGS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Enable Next.js caching for this route (60 seconds)
+export const revalidate = 60;
+
 /**
  * WooCommerce Blogs API Endpoint
  * 
@@ -33,6 +41,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Check cache first
+    const now = Date.now();
+    if (cachedBlogs && (now - blogsCacheTime) < BLOGS_CACHE_TTL) {
+      return NextResponse.json(cachedBlogs);
+    }
+
     // WordPress REST API endpoint
     const WORDPRESS_API_URL = 'https://alternatehealthclub.com/wp-json/wp/v2/posts';
     
@@ -43,20 +57,46 @@ export async function GET(request: NextRequest) {
     // - order: descending (newest first)
     // - status: only published posts
     // - _embed: include embedded resources (featured media, author, etc.)
+    // - _fields: only request needed fields to reduce payload size
     const wordpressUrl = new URL(WORDPRESS_API_URL);
     wordpressUrl.searchParams.append('per_page', '2');
     wordpressUrl.searchParams.append('orderby', 'date');
     wordpressUrl.searchParams.append('order', 'desc');
     wordpressUrl.searchParams.append('status', 'publish');
     wordpressUrl.searchParams.append('_embed', '1');
+    // Request only needed fields to reduce response size
+    wordpressUrl.searchParams.append('_fields', 'id,title,excerpt,content,date,modified,link,slug,tags,_embedded');
 
-    const wordpressResponse = await fetch(wordpressUrl.toString(), {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
+    // Add timeout to prevent hanging
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+    let wordpressResponse: Response;
+    try {
+      wordpressResponse = await fetch(wordpressUrl.toString(), {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      if (fetchError.name === 'AbortError') {
+        return NextResponse.json(
+          {
+            error: 'Request timeout. WordPress API took too long to respond.',
+            details: process.env.NODE_ENV === 'development' 
+              ? 'The request exceeded 5 seconds. Please check your WordPress API connection.' 
+              : undefined,
+          },
+          { status: 504 }
+        );
+      }
+      throw fetchError;
+    }
 
     if (!wordpressResponse.ok) {
       const errorText = await wordpressResponse.text();
@@ -97,39 +137,34 @@ export async function GET(request: NextRequest) {
     // Handle case where WordPress returns a single post object instead of array
     const postsArray = Array.isArray(wordpressPosts) ? wordpressPosts : [wordpressPosts];
 
-    // Transform WordPress posts to match expected format
+    // Transform WordPress posts to match expected format (optimized)
     const blogs = postsArray.map((post: any) => {
-      // Extract excerpt from WordPress post
-      // WordPress provides excerpt.rendered which may contain HTML
+      // Extract excerpt - optimized HTML stripping
       const excerpt = post.excerpt?.rendered || '';
-      // Strip HTML tags from excerpt for tagline
-      const tagline = excerpt.replace(/<[^>]*>/g, '').trim().substring(0, 200) || '';
+      const tagline = excerpt ? excerpt.replace(/<[^>]*>/g, '').trim().substring(0, 200) : '';
       
-      // Extract description from content
-      // WordPress provides content.rendered which contains full HTML
+      // Extract description - only process if needed
       const content = post.content?.rendered || '';
-      // Strip HTML and get first paragraph or first 500 chars
-      const description = content.replace(/<[^>]*>/g, '').trim().substring(0, 500) || '';
+      const description = content ? content.replace(/<[^>]*>/g, '').trim().substring(0, 500) : '';
       
-      // Get featured image URL from embedded media
+      // Get featured image URL from embedded media (optimized)
       let featuredImage = '';
-      if (post._embedded && post._embedded['wp:featuredmedia'] && post._embedded['wp:featuredmedia'][0]) {
-        const featuredMedia = post._embedded['wp:featuredmedia'][0];
-        featuredImage = featuredMedia.source_url || featuredMedia.media_details?.sizes?.full?.source_url || featuredMedia.media_details?.sizes?.large?.source_url || '';
+      const featuredMedia = post._embedded?.['wp:featuredmedia']?.[0];
+      if (featuredMedia) {
+        featuredImage = featuredMedia.source_url || 
+                        featuredMedia.media_details?.sizes?.full?.source_url || 
+                        featuredMedia.media_details?.sizes?.large?.source_url || '';
       }
       
-      // Extract tags - WordPress provides tag IDs
-      // If _embed is used, tags might be in _embedded['wp:term']
-      const tags = post.tags || [];
-      
-      // Extract tag names from embedded terms if available
+      // Extract tag names from embedded terms (optimized)
       let tagNames: string[] = [];
-      if (post._embedded && post._embedded['wp:term']) {
-        // wp:term contains both categories and tags
-        const allTerms = post._embedded['wp:term'].flat();
-        tagNames = allTerms
-          .filter((term: any) => term.taxonomy === 'post_tag')
-          .map((term: any) => term.name || term.slug);
+      const allTerms = post._embedded?.['wp:term'];
+      if (allTerms && Array.isArray(allTerms)) {
+        const flatTerms = allTerms.flat();
+        tagNames = flatTerms
+          .filter((term: any) => term?.taxonomy === 'post_tag')
+          .map((term: any) => term?.name || term?.slug || '')
+          .filter(Boolean);
       }
 
       return {
@@ -137,7 +172,7 @@ export async function GET(request: NextRequest) {
         title: post.title?.rendered || post.title || '',
         tagline: tagline,
         description: description,
-        tags: tagNames.length > 0 ? tagNames : tags,
+        tags: tagNames.length > 0 ? tagNames : (post.tags || []),
         featuredImage: featuredImage,
         createdAt: post.date || post.date_gmt || new Date().toISOString(),
         updatedAt: post.modified || post.modified_gmt || new Date().toISOString(),
@@ -146,11 +181,17 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    return NextResponse.json({
+    const response = {
       success: true,
       count: blogs.length,
       blogs: blogs,
-    });
+    };
+
+    // Cache the response
+    cachedBlogs = response;
+    blogsCacheTime = now;
+
+    return NextResponse.json(response);
   } catch (error) {
     console.error('Get WooCommerce blogs error:', error);
     return NextResponse.json(

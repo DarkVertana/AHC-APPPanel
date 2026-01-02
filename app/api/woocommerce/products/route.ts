@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
 
+// Cache settings for 5 minutes to reduce database queries
+let cachedSettings: any = null;
+let settingsCacheTime = 0;
+const SETTINGS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Enable Next.js caching for this route (60 seconds)
+export const revalidate = 60;
+
 /**
  * WooCommerce Products Endpoint
  * 
@@ -68,10 +76,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get WooCommerce settings from database
-    const settings = await prisma.settings.findUnique({
-      where: { id: 'settings' },
-    });
+    // Get WooCommerce settings from database (with caching)
+    let settings;
+    const now = Date.now();
+    if (cachedSettings && (now - settingsCacheTime) < SETTINGS_CACHE_TTL) {
+      settings = cachedSettings;
+    } else {
+      settings = await prisma.settings.findUnique({
+        where: { id: 'settings' },
+      });
+      if (settings) {
+        cachedSettings = settings;
+        settingsCacheTime = now;
+      }
+    }
 
     if (!settings || !settings.woocommerceApiUrl || !settings.woocommerceApiKey || !settings.woocommerceApiSecret) {
       return NextResponse.json(
@@ -137,11 +155,33 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Fetch products from WooCommerce API
-    const woocommerceResponse = await fetch(productsUrl.toString(), {
-      method: 'GET',
-      headers: authHeaders,
-    });
+    // Fetch products from WooCommerce API with timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+    let woocommerceResponse: Response;
+    try {
+      woocommerceResponse = await fetch(productsUrl.toString(), {
+        method: 'GET',
+        headers: authHeaders,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      if (fetchError.name === 'AbortError') {
+        return NextResponse.json(
+          {
+            error: 'Request timeout. WooCommerce API took too long to respond.',
+            details: process.env.NODE_ENV === 'development' 
+              ? 'The request exceeded 5 seconds. Please check your WooCommerce API connection.' 
+              : undefined,
+          },
+          { status: 504 }
+        );
+      }
+      throw fetchError;
+    }
 
     // Check if response is JSON
     const contentType = woocommerceResponse.headers.get('content-type');
@@ -231,7 +271,7 @@ export async function GET(request: NextRequest) {
     const totalProducts = woocommerceResponse.headers.get('x-wp-total');
     const totalPages = woocommerceResponse.headers.get('x-wp-totalpages');
 
-    // Enrich products with formatted data
+    // Enrich products with formatted data (optimized - only essential fields)
     const enrichedProducts = productsArray.map((product: any) => ({
       id: product.id || null,
       name: product.name || '',
@@ -240,7 +280,6 @@ export async function GET(request: NextRequest) {
       type: product.type || 'simple',
       status: product.status || 'publish',
       featured: product.featured || false,
-      catalog_visibility: product.catalog_visibility || 'visible',
       description: product.description || '',
       short_description: product.short_description || '',
       sku: product.sku || '',
@@ -248,55 +287,13 @@ export async function GET(request: NextRequest) {
       regular_price: product.regular_price || '0',
       sale_price: product.sale_price || '',
       on_sale: product.on_sale || false,
-      purchasable: product.purchasable !== false,
-      total_sales: product.total_sales || 0,
-      virtual: product.virtual || false,
-      downloadable: product.downloadable || false,
-      downloads: product.downloads || [],
-      download_limit: product.download_limit || -1,
-      download_expiry: product.download_expiry || -1,
-      external_url: product.external_url || '',
-      button_text: product.button_text || '',
-      tax_status: product.tax_status || 'taxable',
-      tax_class: product.tax_class || '',
-      manage_stock: product.manage_stock || false,
-      stock_quantity: product.stock_quantity || null,
       stock_status: product.stock_status || 'instock',
-      backorders: product.backorders || 'no',
-      backorders_allowed: product.backorders_allowed || false,
-      backordered: product.backordered || false,
-      sold_individually: product.sold_individually || false,
-      weight: product.weight || '',
-      dimensions: product.dimensions || {
-        length: '',
-        width: '',
-        height: '',
-      },
-      shipping_required: product.shipping_required !== false,
-      shipping_taxable: product.shipping_taxable !== false,
-      shipping_class: product.shipping_class || '',
-      shipping_class_id: product.shipping_class_id || 0,
-      reviews_allowed: product.reviews_allowed !== false,
-      average_rating: product.average_rating || '0',
-      rating_count: product.rating_count || 0,
-      related_ids: product.related_ids || [],
-      upsell_ids: product.upsell_ids || [],
-      cross_sell_ids: product.cross_sell_ids || [],
-      parent_id: product.parent_id || 0,
-      purchase_note: product.purchase_note || '',
+      stock_quantity: product.stock_quantity || null,
+      images: product.images || [],
       categories: product.categories || [],
       tags: product.tags || [],
-      images: product.images || [],
-      attributes: product.attributes || [],
-      default_attributes: product.default_attributes || [],
-      variations: product.variations || [],
-      grouped_products: product.grouped_products || [],
-      menu_order: product.menu_order || 0,
-      meta_data: product.meta_data || [],
       date_created: product.date_created || product.date_created_gmt || null,
       date_modified: product.date_modified || product.date_modified_gmt || null,
-      date_on_sale_from: product.date_on_sale_from || product.date_on_sale_from_gmt || null,
-      date_on_sale_to: product.date_on_sale_to || product.date_on_sale_to_gmt || null,
     }));
 
     return NextResponse.json({
