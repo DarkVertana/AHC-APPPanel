@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
+import { filterFieldsArray, parseFieldsParam } from '@/lib/field-filter';
 
 // Cache settings for 5 minutes to reduce database queries
 let cachedSettings: any = null;
@@ -40,6 +41,8 @@ export async function GET(request: NextRequest) {
     // Get query parameters
     const url = new URL(request.url);
     const email = url.searchParams.get('email');
+    const fieldsParam = url.searchParams.get('fields'); // Dynamic field filtering
+    const requestedFields = parseFieldsParam(fieldsParam);
 
     // Validate email parameter
     if (!email) {
@@ -104,40 +107,9 @@ export async function GET(request: NextRequest) {
         'Accept': 'application/json',
       };
 
-      // Try to get customer by email
+      // Skip customer lookup - we'll filter by email directly (faster)
+      // Customer lookup adds unnecessary delay and we filter by email anyway
       let customerId: number | null = null;
-      
-      try {
-        const customersUrl = new URL(`${apiUrl}/customers`);
-        customersUrl.searchParams.append('email', email);
-        customersUrl.searchParams.append('per_page', '1');
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
-
-        const customersResponse = await fetch(customersUrl.toString(), {
-          method: 'GET',
-          headers: authHeaders,
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        if (customersResponse.ok) {
-          const customersContentType = customersResponse.headers.get('content-type');
-          const isCustomersJson = customersContentType && customersContentType.includes('application/json');
-          
-          if (isCustomersJson) {
-            const customers = await customersResponse.json();
-            const customersArray = Array.isArray(customers) ? customers : [customers];
-            if (customersArray.length > 0 && customersArray[0].id) {
-              customerId = parseInt(customersArray[0].id);
-            }
-          }
-        }
-      } catch (customerError) {
-        // Continue without customer ID
-      }
 
       // Fetch subscriptions
       let subscriptionsUrl: URL;
@@ -292,9 +264,17 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Apply field filtering if requested
+    const filteredData = requestedFields
+      ? {
+          ...responseData,
+          subscriptions: filterFieldsArray(responseData.subscriptions || [], requestedFields),
+        }
+      : responseData;
+
     const responseTime = Date.now() - startTime;
     return NextResponse.json({
-      ...responseData,
+      ...filteredData,
       responseTime: `${responseTime}ms`,
     });
   } catch (error) {

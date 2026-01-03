@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
+import { filterFieldsArray, parseFieldsParam } from '@/lib/field-filter';
 
 // Cache settings for 5 minutes to reduce database queries
 let cachedSettings: any = null;
@@ -45,6 +46,8 @@ export async function GET(request: NextRequest) {
     // Get query parameters
     const url = new URL(request.url);
     const email = url.searchParams.get('email');
+    const fieldsParam = url.searchParams.get('fields'); // Dynamic field filtering
+    const requestedFields = parseFieldsParam(fieldsParam);
 
     // Validate email parameter
     if (!email) {
@@ -196,73 +199,98 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      // Enrich orders with product details
-      const enrichedOrders = await Promise.all(
-        ordersArray.map(async (order: any) => {
-          if (!order.line_items || !Array.isArray(order.line_items)) {
-            return {
-              ...order,
-              items: [],
-            };
-          }
+      // STEP 1: Collect all unique product_ids from all orders
+      const allProductIds: number[] = [];
+      ordersArray.forEach((order: any) => {
+        if (order.line_items && Array.isArray(order.line_items)) {
+          order.line_items.forEach((item: any) => {
+            if (item.product_id) {
+              allProductIds.push(item.product_id);
+            }
+          });
+        }
+      });
 
-          // Enrich each line item with product details
-          const enrichedItems = await Promise.all(
-            order.line_items.map(async (item: any) => {
-              const productDetails: any = {
-                id: item.id,
-                name: item.name || 'Unknown Product',
-                quantity: item.quantity || 0,
-                price: item.price || '0',
-                subtotal: item.subtotal || '0',
-                total: item.total || '0',
-                sku: item.sku || '',
-                image: null,
-                product_id: item.product_id || null,
-                variation_id: item.variation_id || null,
-              };
+      // STEP 2: Get unique product_ids (remove duplicates)
+      const uniqueProductIds = [...new Set(allProductIds)];
 
-              // Fetch product details to get image
-              if (item.product_id) {
-                try {
-                  const productUrl = `${apiUrl}/products/${item.product_id}`;
-                  const productResponse = await fetch(productUrl, {
-                    method: 'GET',
-                    headers: authHeaders,
-                  });
+      // STEP 3: Fetch all unique products in parallel
+      const productsMap = new Map<number, any>();
+      await Promise.all(
+        uniqueProductIds.map(async (productId) => {
+          try {
+            const productUrl = `${apiUrl}/products/${productId}`;
+            const productResponse = await fetch(productUrl, {
+              method: 'GET',
+              headers: authHeaders,
+            });
 
-                  if (productResponse.ok) {
-                    const productContentType = productResponse.headers.get('content-type');
-                    if (productContentType && productContentType.includes('application/json')) {
-                      const product = await productResponse.json();
-                      if (product.images && product.images.length > 0) {
-                        productDetails.image = product.images[0].src || null;
-                      }
-                      if (product.name) {
-                        productDetails.name = product.name;
-                      }
-                    }
-                  }
-                } catch (productError) {
-                  // Continue without product image
-                }
+            if (productResponse.ok) {
+              const productContentType = productResponse.headers.get('content-type');
+              if (productContentType && productContentType.includes('application/json')) {
+                const product = await productResponse.json();
+                productsMap.set(productId, product);
               }
+            }
+          } catch (productError) {
+            // Continue without product - will use default values
+          }
+        })
+      );
 
-              return productDetails;
-            })
-          );
-
+      // STEP 4: Enrich orders using the cached productsMap
+      const enrichedOrders = ordersArray.map((order: any) => {
+        if (!order.line_items || !Array.isArray(order.line_items)) {
           return {
             ...order,
-            items: enrichedItems,
+            items: [],
             status: order.status || 'unknown',
             date_created: order.date_created || order.date_created_gmt || null,
             date_modified: order.date_modified || order.date_modified_gmt || null,
             date_completed: order.date_completed || order.date_completed_gmt || null,
             date_paid: order.date_paid || order.date_paid_gmt || null,
           };
-        })
-      );
+        }
+
+        // Enrich each line item with product details from cache
+        const enrichedItems = order.line_items.map((item: any) => {
+          const productDetails: any = {
+            id: item.id,
+            name: item.name || 'Unknown Product',
+            quantity: item.quantity || 0,
+            price: item.price || '0',
+            subtotal: item.subtotal || '0',
+            total: item.total || '0',
+            sku: item.sku || '',
+            image: null,
+            product_id: item.product_id || null,
+            variation_id: item.variation_id || null,
+          };
+
+          // Get product details from cache (if available)
+          if (item.product_id && productsMap.has(item.product_id)) {
+            const product = productsMap.get(item.product_id);
+            if (product.images && product.images.length > 0) {
+              productDetails.image = product.images[0].src || null;
+            }
+            if (product.name) {
+              productDetails.name = product.name;
+            }
+          }
+
+          return productDetails;
+        });
+
+        return {
+          ...order,
+          items: enrichedItems,
+          status: order.status || 'unknown',
+          date_created: order.date_created || order.date_created_gmt || null,
+          date_modified: order.date_modified || order.date_modified_gmt || null,
+          date_completed: order.date_completed || order.date_completed_gmt || null,
+          date_paid: order.date_paid || order.date_paid_gmt || null,
+        };
+      });
 
       return {
         success: true,
@@ -288,6 +316,7 @@ export async function GET(request: NextRequest) {
       responseData = await fetchOrdersFromWooCommerce(normalizedEmail);
     } catch (error: any) {
       console.error('Failed to fetch orders from WooCommerce:', error);
+      
       return NextResponse.json(
         {
           error: 'Failed to fetch orders from WooCommerce',
@@ -299,9 +328,19 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Apply field filtering if requested (always include meta_data for orders)
+    const filteredData = requestedFields
+      ? {
+          ...responseData,
+          orders: filterFieldsArray(responseData.orders || [], requestedFields, {
+            includeMetaData: true, // Always include meta_data for medication_schedule
+          }),
+        }
+      : responseData;
+
     const responseTime = Date.now() - startTime;
     return NextResponse.json({
-      ...responseData,
+      ...filteredData,
       responseTime: `${responseTime}ms`,
     });
   } catch (error) {
