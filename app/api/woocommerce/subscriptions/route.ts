@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
-import { getCacheWithStale, setCache, buildSubscriptionsCacheKey, CACHE_TTL, refreshCacheInBackground, deleteCache } from '@/lib/redis';
+import { filterFieldsArray, parseFieldsParam } from '@/lib/field-filter';
 
 // Cache settings for 5 minutes to reduce database queries
 let cachedSettings: any = null;
@@ -41,7 +41,8 @@ export async function GET(request: NextRequest) {
     // Get query parameters
     const url = new URL(request.url);
     const email = url.searchParams.get('email');
-    const noCache = url.searchParams.get('nocache') === '1';
+    const fieldsParam = url.searchParams.get('fields'); // Dynamic field filtering
+    const requestedFields = parseFieldsParam(fieldsParam);
 
     // Validate email parameter
     if (!email) {
@@ -53,47 +54,6 @@ export async function GET(request: NextRequest) {
 
     // Normalize email
     const normalizedEmail = email.toLowerCase().trim();
-
-    // Build cache key
-    const cacheKey = buildSubscriptionsCacheKey(normalizedEmail);
-
-    // Check Redis cache with stale detection (unless nocache is set)
-    if (!noCache) {
-      const cacheResult = await getCacheWithStale<any>(cacheKey, 30); // 30 seconds stale threshold
-      
-      if (cacheResult.data) {
-        const responseTime = Date.now() - startTime;
-        
-        // If data is stale, trigger background refresh and return stale data immediately
-        if (cacheResult.isStale) {
-          // Trigger background refresh (non-blocking)
-          refreshCacheInBackground(
-            cacheKey,
-            async () => {
-              return await fetchSubscriptionsFromWooCommerce(normalizedEmail);
-            },
-            CACHE_TTL.SUBSCRIPTIONS
-          ).catch(() => {}); // Ignore errors
-
-          return NextResponse.json({
-            ...cacheResult.data,
-            fromCache: true,
-            stale: true,
-            refreshing: true,
-            responseTime: `${responseTime}ms`,
-          });
-        }
-
-        // Fresh cache hit - return immediately
-        return NextResponse.json({
-          ...cacheResult.data,
-          fromCache: true,
-          stale: false,
-          refreshing: false,
-          responseTime: `${responseTime}ms`,
-        });
-      }
-    }
 
     // Helper function to get WooCommerce settings
     async function getWooCommerceSettings() {
@@ -147,50 +107,14 @@ export async function GET(request: NextRequest) {
         'Accept': 'application/json',
       };
 
-      // Try to get customer by email
-      let customerId: number | null = null;
-      
-      try {
-        const customersUrl = new URL(`${apiUrl}/customers`);
-        customersUrl.searchParams.append('email', email);
-        customersUrl.searchParams.append('per_page', '1');
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
-
-        const customersResponse = await fetch(customersUrl.toString(), {
-          method: 'GET',
-          headers: authHeaders,
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        if (customersResponse.ok) {
-          const customersContentType = customersResponse.headers.get('content-type');
-          const isCustomersJson = customersContentType && customersContentType.includes('application/json');
-          
-          if (isCustomersJson) {
-            const customers = await customersResponse.json();
-            const customersArray = Array.isArray(customers) ? customers : [customers];
-            if (customersArray.length > 0 && customersArray[0].id) {
-              customerId = parseInt(customersArray[0].id);
-            }
-          }
-        }
-      } catch (customerError) {
-        // Continue without customer ID
-      }
+      // Skip customer lookup - we'll filter by email directly (faster)
+      // Customer lookup adds unnecessary delay and we filter by email anyway
 
       // Fetch subscriptions
       let subscriptionsUrl: URL;
       let woocommerceResponse: Response;
 
       subscriptionsUrl = new URL(`${apiUrl}/subscriptions`);
-      
-      if (customerId) {
-        subscriptionsUrl.searchParams.append('customer', customerId.toString());
-      }
       subscriptionsUrl.searchParams.append('per_page', '100');
 
       woocommerceResponse = await fetch(subscriptionsUrl.toString(), {
@@ -202,9 +126,6 @@ export async function GET(request: NextRequest) {
       if (!woocommerceResponse.ok && woocommerceResponse.status === 404) {
         const apiUrlV1 = apiUrl.replace('/wc/v3', '/wc/v1');
         subscriptionsUrl = new URL(`${apiUrlV1}/subscriptions`);
-        if (customerId) {
-          subscriptionsUrl.searchParams.append('customer', customerId.toString());
-        }
         subscriptionsUrl.searchParams.append('per_page', '100');
 
         woocommerceResponse = await fetch(subscriptionsUrl.toString(), {
@@ -231,8 +152,8 @@ export async function GET(request: NextRequest) {
       const subscriptions = await woocommerceResponse.json();
       let subscriptionsArray = Array.isArray(subscriptions) ? subscriptions : [subscriptions];
 
-      // Filter by email if we don't have customerId
-      if (!customerId && subscriptionsArray.length > 0) {
+      // Filter by email (we skip customer lookup and filter directly)
+      if (subscriptionsArray.length > 0) {
         subscriptionsArray = subscriptionsArray.filter((sub: any) => {
           const subEmail = (
             sub.billing?.email?.toLowerCase().trim() ||
@@ -244,36 +165,7 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      // If we have customerId but no subscriptions, try fetching without customer filter
-      if (customerId && subscriptionsArray.length === 0) {
-        const allSubscriptionsUrl = new URL(`${apiUrl}/subscriptions`);
-        allSubscriptionsUrl.searchParams.append('per_page', '100');
-        
-        const allSubscriptionsResponse = await fetch(allSubscriptionsUrl.toString(), {
-          method: 'GET',
-          headers: authHeaders,
-        });
-
-        if (allSubscriptionsResponse.ok) {
-          const contentType = allSubscriptionsResponse.headers.get('content-type');
-          const isJson = contentType && contentType.includes('application/json');
-          
-          if (isJson) {
-            const allSubscriptions = await allSubscriptionsResponse.json();
-            const allSubscriptionsArray = Array.isArray(allSubscriptions) ? allSubscriptions : [allSubscriptions];
-            
-            subscriptionsArray = allSubscriptionsArray.filter((sub: any) => {
-              const subEmail = (
-                sub.billing?.email?.toLowerCase().trim() ||
-                sub.customer_email?.toLowerCase().trim() ||
-                sub.email?.toLowerCase().trim() ||
-                ''
-              );
-              return subEmail === email;
-            });
-          }
-        }
-      }
+      // Note: We skip the customerId fallback since we filter by email directly
 
       // Enrich subscriptions with all status information
       const enrichedSubscriptions = subscriptionsArray.map((sub: any) => ({
@@ -289,7 +181,7 @@ export async function GET(request: NextRequest) {
       return {
         success: true,
         email: email,
-        customerId: customerId || null,
+        customerId: null,
         count: enrichedSubscriptions.length,
         subscriptions: enrichedSubscriptions,
       };
@@ -305,7 +197,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Cache miss - fetch fresh data from WooCommerce
+    // Fetch fresh data from WooCommerce
     let responseData;
     try {
       responseData = await fetchSubscriptionsFromWooCommerce(normalizedEmail);
@@ -335,17 +227,17 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Store in Redis cache (async - don't wait)
-    setCache(cacheKey, responseData, CACHE_TTL.SUBSCRIPTIONS).catch((err) => {
-      console.error('Redis cache set error:', err);
-    });
+    // Apply field filtering if requested
+    const filteredData = requestedFields
+      ? {
+          ...responseData,
+          subscriptions: filterFieldsArray(responseData.subscriptions || [], requestedFields),
+        }
+      : responseData;
 
     const responseTime = Date.now() - startTime;
     return NextResponse.json({
-      ...responseData,
-      fromCache: false,
-      stale: false,
-      refreshing: false,
+      ...filteredData,
       responseTime: `${responseTime}ms`,
     });
   } catch (error) {
@@ -815,10 +707,6 @@ export async function POST(request: NextRequest) {
       end_date: updatedSubscription.end_date || updatedSubscription.end_date_gmt || null,
       trial_end_date: updatedSubscription.trial_end_date || updatedSubscription.trial_end_date_gmt || null,
     };
-
-    // Invalidate cache after subscription update
-    const cacheKey = buildSubscriptionsCacheKey(normalizedEmail);
-    deleteCache(cacheKey).catch(() => {}); // Ignore errors
 
     return NextResponse.json({
       success: true,

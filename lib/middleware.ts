@@ -2,21 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from './auth';
 import { prisma } from './prisma';
 import bcrypt from 'bcryptjs';
-import { getCache, setCache, CACHE_TTL, CACHE_KEYS } from './redis';
 
-// Local fallback cache for API keys (in case Redis is slow/unavailable)
+// Local cache for API keys to reduce database queries
 let localApiKeysCache: Array<{ id: string; key: string; name: string }> | null = null;
 let localApiKeysCacheTime = 0;
-const LOCAL_CACHE_TTL = 30 * 1000; // 30 seconds local fallback
+const LOCAL_CACHE_TTL = 30 * 1000; // 30 seconds local cache
 
 /**
  * Validates API key from request headers
  * Supports both 'X-API-Key' header and 'Authorization: Bearer <key>' format
  * Returns the API key record if valid, null otherwise
  * 
- * Optimized with Redis caching:
- * - API key hashes cached in Redis for 2 minutes
- * - Local memory fallback for 30 seconds
+ * Optimized with local caching:
+ * - Local memory cache for 30 seconds
  * - Parallel bcrypt comparisons
  * - Async lastUsed updates
  */
@@ -44,15 +42,8 @@ export async function validateApiKey(request: NextRequest): Promise<{ id: string
     let activeKeys: Array<{ id: string; key: string; name: string }>;
     const now = Date.now();
 
-    // Try Redis cache first
-    const redisCacheKey = CACHE_KEYS.API_KEYS;
-    const cachedKeys = await getCache<Array<{ id: string; key: string; name: string }>>(redisCacheKey);
-    
-    if (cachedKeys && cachedKeys.length > 0) {
-      activeKeys = cachedKeys;
-    } 
-    // Try local cache as fallback
-    else if (localApiKeysCache && (now - localApiKeysCacheTime) < LOCAL_CACHE_TTL) {
+    // Try local cache first
+    if (localApiKeysCache && (now - localApiKeysCacheTime) < LOCAL_CACHE_TTL) {
       activeKeys = localApiKeysCache;
     } 
     // Fetch from database
@@ -68,14 +59,9 @@ export async function validateApiKey(request: NextRequest): Promise<{ id: string
       
       activeKeys = keys;
       
-      // Store in local cache immediately
+      // Store in local cache
       localApiKeysCache = activeKeys;
       localApiKeysCacheTime = now;
-      
-      // Store in Redis cache asynchronously
-      setCache(redisCacheKey, activeKeys, CACHE_TTL.API_KEYS).catch(() => {
-        // Silently fail - we have local cache
-      });
     }
 
     // Parallel bcrypt comparisons for speed

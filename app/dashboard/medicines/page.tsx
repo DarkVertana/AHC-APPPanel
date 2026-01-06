@@ -7,6 +7,7 @@ import Image from 'next/image';
 import { getImageUrl } from '@/lib/image-utils';
 import ConfirmModal from '@/app/components/ConfirmModal';
 import NotificationModal from '@/app/components/NotificationModal';
+import RichTextEditor from '@/app/components/RichTextEditor';
 
 type Category = {
   id: number;
@@ -524,8 +525,13 @@ export default function MedicinesPage() {
                       )}
                     </td>
                     <td className="px-3 py-3">
-                      <div className="text-sm text-[#435970] truncate max-w-[96px]" title={medicine.description || ''}>
-                        {medicine.description || '-'}
+                      <div 
+                        className="text-sm text-[#435970] truncate max-w-[96px]" 
+                        title={medicine.description ? medicine.description.replace(/<[^>]*>/g, '').substring(0, 100) : ''}
+                      >
+                        {medicine.description 
+                          ? (medicine.description.replace(/<[^>]*>/g, '').substring(0, 50) + (medicine.description.replace(/<[^>]*>/g, '').length > 50 ? '...' : ''))
+                          : '-'}
                       </div>
                     </td>
                     <td className="px-3 py-3">
@@ -691,13 +697,10 @@ export default function MedicinesPage() {
                 <label htmlFor="description" className="block text-sm font-medium text-[#435970] mb-2">
                   Description
                 </label>
-                <textarea
-                  id="description"
-                  rows={4}
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] placeholder:text-[#7895b3] resize-none"
-                  placeholder="Enter product description"
+                <RichTextEditor
+                  content={formData.description}
+                  onChange={(content) => setFormData({ ...formData, description: content })}
+                  placeholder="Enter product description. Use the toolbar above to format your text, add links, lists, and more."
                 />
               </div>
 
