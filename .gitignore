@@ -36,6 +36,20 @@ test-woocommerce-api.ps1
 test-woocommerce-api.sh
 CURL_TEST_COMMANDS.md
 
+# Python test scripts
+*.py
+test_endpoints.py
+
+# JSON files created by test scripts
+*_response.json
+test_summary.json
+subscription_*_orders_response.json
+orders_response.json
+subscriptions_response.json
+
+# Markdown files in root directory
+/*.md
+
 # vercel
 .vercel
 
