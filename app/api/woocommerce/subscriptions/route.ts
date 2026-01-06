@@ -107,65 +107,181 @@ export async function GET(request: NextRequest) {
         'Accept': 'application/json',
       };
 
-      // Skip customer lookup - we'll filter by email directly (faster)
-      // Customer lookup adds unnecessary delay and we filter by email anyway
+      // Helper function to fetch subscriptions with optional customer filter
+      async function fetchSubscriptionsByCustomer(customerId: number | null = null): Promise<any[]> {
+        let allSubscriptions: any[] = [];
+        let currentPage = 1;
+        let totalPages = 1;
+        let apiUrlToUse = apiUrl;
+        let isV1Endpoint = false;
 
-      // Fetch subscriptions
-      let subscriptionsUrl: URL;
-      let woocommerceResponse: Response;
+        // Try v3 endpoint first, fallback to v1 if needed
+        do {
+          let subscriptionsUrl: URL;
+          let woocommerceResponse: Response;
 
-      subscriptionsUrl = new URL(`${apiUrl}/subscriptions`);
-      subscriptionsUrl.searchParams.append('per_page', '100');
+          subscriptionsUrl = new URL(`${apiUrlToUse}/subscriptions`);
+          subscriptionsUrl.searchParams.append('per_page', '100');
+          subscriptionsUrl.searchParams.append('page', currentPage.toString());
+          
+          // If customer ID provided, filter by it
+          if (customerId) {
+            subscriptionsUrl.searchParams.append('customer', customerId.toString());
+          }
 
-      woocommerceResponse = await fetch(subscriptionsUrl.toString(), {
-        method: 'GET',
-        headers: authHeaders,
-      });
+          woocommerceResponse = await fetch(subscriptionsUrl.toString(), {
+            method: 'GET',
+            headers: authHeaders,
+          });
 
-      // If v3 endpoint doesn't work, try v1 endpoint
-      if (!woocommerceResponse.ok && woocommerceResponse.status === 404) {
-        const apiUrlV1 = apiUrl.replace('/wc/v3', '/wc/v1');
-        subscriptionsUrl = new URL(`${apiUrlV1}/subscriptions`);
-        subscriptionsUrl.searchParams.append('per_page', '100');
+          // If v3 endpoint doesn't work on first page, try v1 endpoint
+          if (!woocommerceResponse.ok && woocommerceResponse.status === 404 && currentPage === 1 && !isV1Endpoint) {
+            apiUrlToUse = apiUrl.replace('/wc/v3', '/wc/v1');
+            isV1Endpoint = true;
+            subscriptionsUrl = new URL(`${apiUrlToUse}/subscriptions`);
+            subscriptionsUrl.searchParams.append('per_page', '100');
+            subscriptionsUrl.searchParams.append('page', currentPage.toString());
+            
+            if (customerId) {
+              subscriptionsUrl.searchParams.append('customer', customerId.toString());
+            }
 
-        woocommerceResponse = await fetch(subscriptionsUrl.toString(), {
-          method: 'GET',
-          headers: authHeaders,
-        });
+            woocommerceResponse = await fetch(subscriptionsUrl.toString(), {
+              method: 'GET',
+              headers: authHeaders,
+            });
+          }
+
+          if (!woocommerceResponse.ok) {
+            if (woocommerceResponse.status === 404 && currentPage === 1) {
+              throw new Error('WooCommerce Subscriptions plugin not found or not active');
+            }
+            // If we get an error on a later page, break the loop (might be end of pages)
+            if (currentPage > 1) {
+              break;
+            }
+            throw new Error(`WooCommerce API returned ${woocommerceResponse.status}`);
+          }
+
+          // Parse JSON response
+          const contentType = woocommerceResponse.headers.get('content-type');
+          const isJson = contentType && contentType.includes('application/json');
+          
+          if (!isJson) {
+            throw new Error('WooCommerce API returned invalid response format');
+          }
+
+          const pageSubscriptions = await woocommerceResponse.json();
+          const pageSubscriptionsArray = Array.isArray(pageSubscriptions) ? pageSubscriptions : [pageSubscriptions];
+          
+          // If no subscriptions on this page, we're done
+          if (pageSubscriptionsArray.length === 0) {
+            break;
+          }
+
+          // Add subscriptions from this page to our collection
+          allSubscriptions = allSubscriptions.concat(pageSubscriptionsArray);
+
+          // Get pagination info from headers
+          const totalPagesHeader = woocommerceResponse.headers.get('X-WP-TotalPages');
+          if (totalPagesHeader) {
+            const parsedTotalPages = parseInt(totalPagesHeader, 10);
+            if (!isNaN(parsedTotalPages) && parsedTotalPages > totalPages) {
+              totalPages = parsedTotalPages;
+            }
+          }
+
+          // Move to next page
+          currentPage++;
+
+          // Safety check: if we've fetched more than 10 pages (1000 subscriptions), break
+          // This prevents infinite loops and excessive API calls
+          if (currentPage > 10) {
+            console.warn('Reached maximum page limit (10 pages = 1000 subscriptions). Some subscriptions may be missing.');
+            break;
+          }
+
+          // If we got fewer subscriptions than per_page, we've reached the last page
+          if (pageSubscriptionsArray.length < 100) {
+            break;
+          }
+
+        } while (currentPage <= totalPages);
+
+        return allSubscriptions;
       }
 
-      if (!woocommerceResponse.ok) {
-        if (woocommerceResponse.status === 404) {
-          throw new Error('WooCommerce Subscriptions plugin not found or not active');
-        }
-        throw new Error(`WooCommerce API returned ${woocommerceResponse.status}`);
-      }
-
-      // Parse JSON response
-      const contentType = woocommerceResponse.headers.get('content-type');
-      const isJson = contentType && contentType.includes('application/json');
-      
-      if (!isJson) {
-        throw new Error('WooCommerce API returned invalid response format');
-      }
-
-      const subscriptions = await woocommerceResponse.json();
-      let subscriptionsArray = Array.isArray(subscriptions) ? subscriptions : [subscriptions];
-
-      // Filter by email (we skip customer lookup and filter directly)
-      if (subscriptionsArray.length > 0) {
-        subscriptionsArray = subscriptionsArray.filter((sub: any) => {
+      // Helper function to filter subscriptions by email
+      function filterSubscriptionsByEmail(subscriptions: any[], emailToMatch: string): any[] {
+        const emailLower = emailToMatch.toLowerCase().trim();
+        return subscriptions.filter((sub: any) => {
           const subEmail = (
             sub.billing?.email?.toLowerCase().trim() ||
             sub.customer_email?.toLowerCase().trim() ||
             sub.email?.toLowerCase().trim() ||
             ''
           );
-          return subEmail === email;
+          return subEmail === emailLower;
         });
       }
 
-      // Note: We skip the customerId fallback since we filter by email directly
+      // Method 1: Fetch all subscriptions directly and filter by email (primary method)
+      console.log(`[Subscriptions API] Method 1: Fetching all subscriptions and filtering by email: ${email}`);
+      let allSubscriptions = await fetchSubscriptionsByCustomer(null);
+      console.log(`[Subscriptions API] Fetched ${allSubscriptions.length} total subscriptions from WooCommerce`);
+
+      let subscriptionsArray = filterSubscriptionsByEmail(allSubscriptions, email);
+      console.log(`[Subscriptions API] After email filtering: ${subscriptionsArray.length} subscriptions match email ${email}`);
+
+      // Method 2: Fallback - if no subscriptions found, try customer lookup by email
+      let customerId: number | null = null;
+      if (subscriptionsArray.length === 0) {
+        console.log(`[Subscriptions API] No subscriptions found by direct search. Trying fallback: customer lookup by email.`);
+        
+        try {
+          // Look up customer by email
+          const customersUrl = new URL(`${apiUrl}/customers`);
+          customersUrl.searchParams.append('email', email);
+          customersUrl.searchParams.append('per_page', '1');
+
+          const customerResponse = await fetch(customersUrl.toString(), {
+            method: 'GET',
+            headers: authHeaders,
+          });
+
+          if (customerResponse.ok) {
+            const customers = await customerResponse.json();
+            const customersArray = Array.isArray(customers) ? customers : [customers];
+            if (customersArray.length > 0 && customersArray[0].id) {
+              customerId = parseInt(customersArray[0].id, 10);
+              console.log(`[Subscriptions API] Found customer ID ${customerId} for email ${email}`);
+              
+              // Fetch subscriptions by customer ID
+              console.log(`[Subscriptions API] Method 2: Fetching subscriptions by customer ID ${customerId}`);
+              subscriptionsArray = await fetchSubscriptionsByCustomer(customerId);
+              console.log(`[Subscriptions API] Found ${subscriptionsArray.length} subscriptions for customer ID ${customerId}`);
+            } else {
+              console.log(`[Subscriptions API] Customer not found by email ${email}`);
+            }
+          }
+        } catch (customerError) {
+          console.warn('[Subscriptions API] Customer lookup fallback failed:', customerError);
+        }
+      }
+
+      // Log all subscription emails for debugging
+      if (subscriptionsArray.length > 0) {
+        const allEmails = subscriptionsArray.map((sub: any) => {
+          const subEmail = (
+            sub.billing?.email?.toLowerCase().trim() ||
+            sub.customer_email?.toLowerCase().trim() ||
+            sub.email?.toLowerCase().trim() ||
+            ''
+          );
+          return { id: sub.id, email: subEmail, status: sub.status, date_created: sub.date_created };
+        });
+        console.log(`[Subscriptions API] Final subscriptions found:`, JSON.stringify(allEmails, null, 2));
+      }
 
       // Enrich subscriptions with all status information
       const enrichedSubscriptions = subscriptionsArray.map((sub: any) => ({
@@ -181,7 +297,7 @@ export async function GET(request: NextRequest) {
       return {
         success: true,
         email: email,
-        customerId: null,
+        customerId: customerId,
         count: enrichedSubscriptions.length,
         subscriptions: enrichedSubscriptions,
       };
