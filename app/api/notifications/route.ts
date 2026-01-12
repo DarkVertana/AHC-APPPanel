@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
         failureCount: pushResult.failureCount,
         totalUsers: pushResult.totalUsers,
         errors: pushResult.errors || [],
-        error: pushError || (pushResult.failureCount > 0 && pushResult.errors?.length > 0 
+        error: pushError || (pushResult.failureCount > 0 && pushResult.errors && pushResult.errors.length > 0 
           ? pushResult.errors[0] 
           : undefined),
       } : pushError ? {
