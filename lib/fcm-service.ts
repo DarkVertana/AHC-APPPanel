@@ -33,17 +33,30 @@ export async function initializeFCM(): Promise<boolean> {
 
       if (serviceAccountJson) {
         try {
+          // Check if JSON string is empty or just whitespace
+          if (!serviceAccountJson.trim()) {
+            console.error('FIREBASE_SERVICE_ACCOUNT is set but appears to be empty');
+            return false;
+          }
+
           const serviceAccount = JSON.parse(serviceAccountJson);
           
           // Validate required fields
-          if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
-            console.error('FIREBASE_SERVICE_ACCOUNT JSON is missing required fields (project_id, private_key, client_email)');
+          const missingFields = [];
+          if (!serviceAccount.project_id) missingFields.push('project_id');
+          if (!serviceAccount.private_key) missingFields.push('private_key');
+          if (!serviceAccount.client_email) missingFields.push('client_email');
+          
+          if (missingFields.length > 0) {
+            console.error(`FIREBASE_SERVICE_ACCOUNT JSON is missing required fields: ${missingFields.join(', ')}`);
+            console.error('Service account JSON should contain: project_id, private_key, client_email, and other fields');
             return false;
           }
 
           // Check if project ID matches
           if (serviceAccount.project_id !== settings.fcmProjectId) {
             console.warn(`Service account project_id (${serviceAccount.project_id}) does not match database fcmProjectId (${settings.fcmProjectId})`);
+            console.warn('Using project_id from service account JSON instead');
           }
 
           firebaseApp = admin.initializeApp({
@@ -51,8 +64,13 @@ export async function initializeFCM(): Promise<boolean> {
             projectId: settings.fcmProjectId,
           });
           console.log('FCM initialized successfully using FIREBASE_SERVICE_ACCOUNT');
+          console.log(`Project ID: ${serviceAccount.project_id}, Client Email: ${serviceAccount.client_email}`);
         } catch (error: any) {
           console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT JSON:', error.message);
+          console.error('Make sure the JSON is valid and properly formatted');
+          if (error.message.includes('JSON')) {
+            console.error('Tip: If using .env file, make sure the JSON is on one line or properly escaped');
+          }
           return false;
         }
       } else if (credentialsPath) {
