@@ -58,3 +58,8 @@ subscriptions_response.json
 next-env.d.ts
 
 /lib/generated/prisma
+
+#scripts
+scripts/*.js
+scripts/*.ps1
+scripts/*.sh

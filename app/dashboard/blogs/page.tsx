@@ -31,6 +31,8 @@ export default function BlogsPage() {
   const [blogToDelete, setBlogToDelete] = useState<string | null>(null);
   const [showNotification, setShowNotification] = useState(false);
   const [notification, setNotification] = useState<{ title: string; message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
+  const [selectedBlogs, setSelectedBlogs] = useState<Set<string>>(new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   // Fetch blogs from API
   const fetchBlogs = useCallback(async () => {
@@ -73,6 +75,74 @@ export default function BlogsPage() {
   const handleDeleteClick = (id: string) => {
     setBlogToDelete(id);
     setShowDeleteModal(true);
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedBlogs(new Set(filteredBlogs.map(b => b.id)));
+    } else {
+      setSelectedBlogs(new Set());
+    }
+  };
+
+  const handleSelectBlog = (id: string, checked: boolean) => {
+    const newSelected = new Set(selectedBlogs);
+    if (checked) {
+      newSelected.add(id);
+    } else {
+      newSelected.delete(id);
+    }
+    setSelectedBlogs(newSelected);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedBlogs.size === 0) return;
+
+    if (!confirm(`Are you sure you want to delete ${selectedBlogs.size} blog(s)? This action cannot be undone.`)) {
+      return;
+    }
+
+    setIsBulkDeleting(true);
+    try {
+      const response = await fetch('/api/blogs/bulk-delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ ids: Array.from(selectedBlogs) }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSelectedBlogs(new Set());
+        setNotification({
+          title: 'Success',
+          message: data.message || `Successfully deleted ${selectedBlogs.size} blog(s)`,
+          type: 'success',
+        });
+        setShowNotification(true);
+        await fetchBlogs();
+      } else {
+        const error = await response.json();
+        setNotification({
+          title: 'Error',
+          message: error.error || 'Failed to delete blogs',
+          type: 'error',
+        });
+        setShowNotification(true);
+      }
+    } catch (error) {
+      console.error('Bulk delete error:', error);
+      setNotification({
+        title: 'Error',
+        message: 'An error occurred while deleting blogs',
+        type: 'error',
+      });
+      setShowNotification(true);
+    } finally {
+      setIsBulkDeleting(false);
+    }
   };
 
   const handleDeleteConfirm = async () => {
@@ -197,12 +267,48 @@ export default function BlogsPage() {
         </div>
       </div>
 
+      {/* Bulk Actions Bar */}
+      {selectedBlogs.size > 0 && (
+        <div className="bg-[#435970] text-white rounded-lg p-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{selectedBlogs.size} blog(s) selected</span>
+          </div>
+          <button
+            onClick={handleBulkDelete}
+            disabled={isBulkDeleting}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {isBulkDeleting ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Deleting...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Delete Selected
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Blogs Table */}
       <div className="bg-white rounded-lg border border-[#dfedfb] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-[#dfedfb]">
               <tr>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-[#435970] uppercase tracking-wider w-12">
+                  <input
+                    type="checkbox"
+                    checked={filteredBlogs.length > 0 && selectedBlogs.size === filteredBlogs.length}
+                    onChange={(e) => handleSelectAll(e.target.checked)}
+                    className="w-4 h-4 text-[#435970] border-[#dfedfb] rounded focus:ring-[#7895b3] focus:ring-2"
+                  />
+                </th>
                 <th className="px-3 py-3 text-left text-xs font-semibold text-[#435970] uppercase tracking-wider w-20">
                   Image
                 </th>
@@ -229,7 +335,7 @@ export default function BlogsPage() {
             <tbody className="divide-y divide-[#dfedfb]">
               {filteredBlogs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center">
+                  <td colSpan={8} className="px-6 py-12 text-center">
                     <div className="flex flex-col items-center justify-center">
                       <svg className="w-16 h-16 text-[#7895b3] mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
@@ -252,6 +358,14 @@ export default function BlogsPage() {
               ) : (
                 filteredBlogs.map((blog) => (
                   <tr key={blog.id} className="hover:bg-[#dfedfb]/20 transition-colors">
+                    <td className="px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedBlogs.has(blog.id)}
+                        onChange={(e) => handleSelectBlog(blog.id, e.target.checked)}
+                        className="w-4 h-4 text-[#435970] border-[#dfedfb] rounded focus:ring-[#7895b3] focus:ring-2"
+                      />
+                    </td>
                     <td className="px-3 py-3">
                       <div className="w-12 h-12 bg-[#dfedfb] rounded-lg overflow-hidden flex items-center justify-center flex-shrink-0">
                         {blog.featuredImage ? (

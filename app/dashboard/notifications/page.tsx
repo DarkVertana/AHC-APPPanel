@@ -30,6 +30,8 @@ export default function NotificationsPage() {
   const [notificationToDelete, setNotificationToDelete] = useState<string | null>(null);
   const [showNotification, setShowNotification] = useState(false);
   const [notification, setNotification] = useState<{ title: string; message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
+  const [selectedNotifications, setSelectedNotifications] = useState<Set<string>>(new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -76,6 +78,74 @@ export default function NotificationsPage() {
   const handleDeleteClick = (id: string) => {
     setNotificationToDelete(id);
     setShowDeleteModal(true);
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedNotifications(new Set(notifications.map(n => n.id)));
+    } else {
+      setSelectedNotifications(new Set());
+    }
+  };
+
+  const handleSelectNotification = (id: string, checked: boolean) => {
+    const newSelected = new Set(selectedNotifications);
+    if (checked) {
+      newSelected.add(id);
+    } else {
+      newSelected.delete(id);
+    }
+    setSelectedNotifications(newSelected);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedNotifications.size === 0) return;
+
+    if (!confirm(`Are you sure you want to delete ${selectedNotifications.size} notification(s)? This action cannot be undone.`)) {
+      return;
+    }
+
+    setIsBulkDeleting(true);
+    try {
+      const response = await fetch('/api/notifications/bulk-delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ ids: Array.from(selectedNotifications) }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSelectedNotifications(new Set());
+        setNotification({
+          title: 'Success',
+          message: data.message || `Successfully deleted ${selectedNotifications.size} notification(s)`,
+          type: 'success',
+        });
+        setShowNotification(true);
+        await fetchNotifications();
+      } else {
+        const error = await response.json();
+        setNotification({
+          title: 'Error',
+          message: error.error || 'Failed to delete notifications',
+          type: 'error',
+        });
+        setShowNotification(true);
+      }
+    } catch (error) {
+      console.error('Bulk delete error:', error);
+      setNotification({
+        title: 'Error',
+        message: 'An error occurred while deleting notifications',
+        type: 'error',
+      });
+      setShowNotification(true);
+    } finally {
+      setIsBulkDeleting(false);
+    }
   };
 
   const handleDeleteConfirm = async () => {
@@ -373,12 +443,48 @@ export default function NotificationsPage() {
         </div>
       )}
 
+      {/* Bulk Actions Bar */}
+      {selectedNotifications.size > 0 && (
+        <div className="bg-[#435970] text-white rounded-lg p-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{selectedNotifications.size} notification(s) selected</span>
+          </div>
+          <button
+            onClick={handleBulkDelete}
+            disabled={isBulkDeleting}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {isBulkDeleting ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Deleting...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Delete Selected
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Notifications Table */}
       <div className="bg-white rounded-lg border border-[#dfedfb] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-[#dfedfb]">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-[#435970] uppercase tracking-wider w-12">
+                  <input
+                    type="checkbox"
+                    checked={notifications.length > 0 && selectedNotifications.size === notifications.length}
+                    onChange={(e) => handleSelectAll(e.target.checked)}
+                    className="w-4 h-4 text-[#435970] border-[#dfedfb] rounded focus:ring-[#7895b3] focus:ring-2"
+                  />
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-[#435970] uppercase tracking-wider w-24">
                   Image
                 </th>
@@ -408,7 +514,7 @@ export default function NotificationsPage() {
             <tbody className="bg-white divide-y divide-[#dfedfb]">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center">
+                  <td colSpan={9} className="px-6 py-12 text-center">
                     <div className="flex items-center justify-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#435970]"></div>
                     </div>
@@ -416,7 +522,7 @@ export default function NotificationsPage() {
                 </tr>
               ) : notifications.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center">
+                  <td colSpan={9} className="px-6 py-12 text-center">
                     <div className="text-[#7895b3]">
                       <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
@@ -429,6 +535,14 @@ export default function NotificationsPage() {
               ) : (
                 notifications.map((notification) => (
                   <tr key={notification.id} className="hover:bg-[#dfedfb]/20 transition-colors">
+                    <td className="px-6 py-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedNotifications.has(notification.id)}
+                        onChange={(e) => handleSelectNotification(notification.id, e.target.checked)}
+                        className="w-4 h-4 text-[#435970] border-[#dfedfb] rounded focus:ring-[#7895b3] focus:ring-2"
+                      />
+                    </td>
                     <td className="px-6 py-4">
                       <div className="w-16 h-16 bg-[#dfedfb] rounded-lg overflow-hidden flex items-center justify-center flex-shrink-0">
                         {notification.image ? (
