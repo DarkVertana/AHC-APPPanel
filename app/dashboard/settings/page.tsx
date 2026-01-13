@@ -502,27 +502,12 @@ export default function SettingsPage() {
     );
   };
 
-  const toggleResetEntity = (entity: string) => {
-    setResetEntities(prev =>
-      prev.includes(entity)
-        ? prev.filter(e => e !== entity)
-        : [...prev, entity]
-    );
-  };
-
   const handleDataReset = async () => {
-    if (resetEntities.length === 0) {
-      alert('Please select at least one entity to reset');
-      return;
-    }
-
-    if (resetConfirmPhrase !== 'RESET DATA') {
-      alert('Please type "RESET DATA" to confirm');
+    if (!confirm('WARNING: This will permanently delete ALL data including users, medicines, blogs, FAQs, and notifications. This action cannot be undone. Are you sure?')) {
       return;
     }
 
     setIsResetting(true);
-    setResetResult(null);
 
     try {
       const response = await fetch('/api/backup/reset', {
@@ -530,22 +515,14 @@ export default function SettingsPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          entities: resetEntities,
-          confirmPhrase: resetConfirmPhrase,
-        }),
       });
 
       const result = await response.json();
-      setResetResult(result);
 
       if (result.success) {
-        alert(`Successfully reset ${result.totalDeleted} records`);
-        setResetEntities([]);
-        setResetConfirmPhrase('');
-        setShowResetConfirm(false);
+        alert(`Successfully deleted ${result.totalDeleted} records`);
       } else {
-        alert(result.error || 'Reset completed with some errors. Check the results below.');
+        alert(result.error || 'Failed to reset data');
       }
     } catch (error: any) {
       console.error('Reset error:', error);
@@ -564,10 +541,6 @@ export default function SettingsPage() {
 
   // Data Reset States
   const [isResetting, setIsResetting] = useState(false);
-  const [resetEntities, setResetEntities] = useState<string[]>([]);
-  const [resetConfirmPhrase, setResetConfirmPhrase] = useState('');
-  const [resetResult, setResetResult] = useState<any>(null);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const tabs = [
     { id: 'general', name: 'General', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' },
@@ -1352,140 +1325,20 @@ export default function SettingsPage() {
 
             {/* Data Reset Section */}
             <div className="mt-8 pt-8 border-t border-[#dfedfb]">
-              <div className="flex items-center gap-2 mb-4">
-                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                <h5 className="text-base font-semibold text-red-600">Data Reset (Danger Zone)</h5>
-              </div>
-              <p className="text-xs text-[#7895b3] mb-4">
-                Permanently delete data from selected entities. This action cannot be undone. Make sure to export a backup before proceeding.
-              </p>
-
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                <p className="text-sm text-red-800 font-medium mb-3">Select entities to reset:</p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {[
-                    { id: 'app-users', label: 'App Users', desc: 'Mobile app users' },
-                    { id: 'weight-logs', label: 'Weight Logs', desc: 'User weight records' },
-                    { id: 'medication-logs', label: 'Medication Logs', desc: 'User medication records' },
-                    { id: 'medicine-categories', label: 'Medicine Categories', desc: 'Categories & medicines' },
-                    { id: 'medicines', label: 'Medicines Only', desc: 'Keep categories' },
-                    { id: 'blogs', label: 'Blogs', desc: 'All blog posts' },
-                    { id: 'faqs', label: 'FAQs', desc: 'All FAQ entries' },
-                    { id: 'notifications', label: 'Notifications', desc: 'All notifications' },
-                  ].map((entity) => (
-                    <label
-                      key={entity.id}
-                      className={`flex items-start gap-2 p-3 border rounded-lg cursor-pointer transition-colors ${
-                        resetEntities.includes(entity.id)
-                          ? 'border-red-400 bg-red-100'
-                          : 'border-red-200 hover:bg-red-50'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={resetEntities.includes(entity.id)}
-                        onChange={() => toggleResetEntity(entity.id)}
-                        className="w-4 h-4 mt-0.5 text-red-600 border-red-300 rounded focus:ring-red-500 focus:ring-2"
-                      />
-                      <div>
-                        <span className="text-sm text-red-800 font-medium block">{entity.label}</span>
-                        <span className="text-xs text-red-600">{entity.desc}</span>
-                      </div>
-                    </label>
-                  ))}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h5 className="text-base font-semibold text-red-600">Reset All Data</h5>
+                  <p className="text-xs text-[#7895b3] mt-1">Delete all users, medicines, blogs, FAQs, and notifications</p>
                 </div>
-              </div>
-
-              {resetEntities.length > 0 && !showResetConfirm && (
                 <button
                   type="button"
-                  onClick={() => setShowResetConfirm(true)}
-                  className="px-6 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors flex items-center gap-2"
+                  onClick={handleDataReset}
+                  disabled={isResetting}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                  Reset Selected Data ({resetEntities.length} {resetEntities.length === 1 ? 'entity' : 'entities'})
+                  {isResetting ? 'Resetting...' : 'Reset Data'}
                 </button>
-              )}
-
-              {showResetConfirm && (
-                <div className="bg-red-100 border border-red-300 rounded-lg p-4 mt-4">
-                  <p className="text-sm text-red-800 font-medium mb-2">Confirm Data Reset</p>
-                  <p className="text-xs text-red-700 mb-3">
-                    You are about to permanently delete all data from: <strong>{resetEntities.join(', ')}</strong>
-                  </p>
-                  <p className="text-xs text-red-700 mb-3">
-                    Type <strong>RESET DATA</strong> below to confirm:
-                  </p>
-                  <div className="flex gap-2 mb-3">
-                    <input
-                      type="text"
-                      value={resetConfirmPhrase}
-                      onChange={(e) => setResetConfirmPhrase(e.target.value)}
-                      placeholder="Type RESET DATA"
-                      className="flex-1 px-4 py-2 border border-red-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-red-800 placeholder:text-red-400 bg-white"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowResetConfirm(false);
-                        setResetConfirmPhrase('');
-                      }}
-                      className="px-4 py-2 border border-red-300 text-red-700 rounded-lg font-medium hover:bg-red-50 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleDataReset}
-                      disabled={isResetting || resetConfirmPhrase !== 'RESET DATA'}
-                      className="px-6 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                    >
-                      {isResetting ? (
-                        <>
-                          <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          Resetting...
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                          Confirm Reset
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Reset Results */}
-              {resetResult && (
-                <div className={`mt-4 p-4 rounded-lg border ${resetResult.success ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
-                  <h6 className="font-semibold text-[#435970] mb-2">
-                    {resetResult.success ? 'Reset Successful' : 'Reset Completed with Errors'}
-                  </h6>
-                  <p className="text-sm text-[#435970] mb-2">Total records deleted: {resetResult.totalDeleted}</p>
-                  <div className="space-y-1 text-sm">
-                    {Object.entries(resetResult.results || {}).map(([entity, details]: [string, any]) => (
-                      <div key={entity} className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${details.error ? 'bg-red-500' : 'bg-green-500'}`}></span>
-                        <span className="capitalize text-[#435970]">{entity.replace(/-/g, ' ')}:</span>
-                        <span className="text-[#7895b3]">{details.deleted} deleted</span>
-                        {details.error && <span className="text-red-600 text-xs">({details.error})</span>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              </div>
             </div>
 
             {/* Info Box */}
@@ -1495,9 +1348,7 @@ export default function SettingsPage() {
                 <li>Backups include all data for selected entities (medicines, categories, blogs, FAQs, notifications)</li>
                 <li>Export creates a JSON file that can be imported later</li>
                 <li>Import modes: Merge (update/add), Replace (delete all first), Skip Existing (only new)</li>
-                <li>Medicine categories are always exported with medicines due to dependencies</li>
                 <li>Regular backups are recommended to prevent data loss</li>
-                <li><strong>Data Reset:</strong> Permanently deletes selected data - always backup before resetting</li>
               </ul>
             </div>
           </div>
