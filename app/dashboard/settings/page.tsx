@@ -448,7 +448,7 @@ export default function SettingsPage() {
     }
   };
 
-  const handleReset = async (entity: string) => {
+  const handleResetData = async (entity: string) => {
     const entityNames: Record<string, string> = {
       'users': 'all users and their related data',
       'weight-logs': 'all weight logs',
@@ -1366,7 +1366,7 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleReset('users')}
+                    onClick={() => handleResetData('users')}
                     disabled={isResetting === 'users'}
                     className="w-full mt-2 px-3 py-2 bg-red-600 text-white text-sm rounded-lg font-medium hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
@@ -1398,7 +1398,7 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleReset('weight-logs')}
+                    onClick={() => handleResetData('weight-logs')}
                     disabled={isResetting === 'weight-logs'}
                     className="w-full mt-2 px-3 py-2 bg-red-600 text-white text-sm rounded-lg font-medium hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
@@ -1430,7 +1430,7 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleReset('medicine-categories')}
+                    onClick={() => handleResetData('medicine-categories')}
                     disabled={isResetting === 'medicine-categories'}
                     className="w-full mt-2 px-3 py-2 bg-orange-600 text-white text-sm rounded-lg font-medium hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
@@ -1462,7 +1462,7 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleReset('medicines')}
+                    onClick={() => handleResetData('medicines')}
                     disabled={isResetting === 'medicines'}
                     className="w-full mt-2 px-3 py-2 bg-orange-600 text-white text-sm rounded-lg font-medium hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
@@ -1494,7 +1494,7 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleReset('blogs')}
+                    onClick={() => handleResetData('blogs')}
                     disabled={isResetting === 'blogs'}
                     className="w-full mt-2 px-3 py-2 bg-yellow-600 text-white text-sm rounded-lg font-medium hover:bg-yellow-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
@@ -1526,7 +1526,7 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleReset('faqs')}
+                    onClick={() => handleResetData('faqs')}
                     disabled={isResetting === 'faqs'}
                     className="w-full mt-2 px-3 py-2 bg-yellow-600 text-white text-sm rounded-lg font-medium hover:bg-yellow-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
@@ -1558,7 +1558,7 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleReset('notifications')}
+                    onClick={() => handleResetData('notifications')}
                     disabled={isResetting === 'notifications'}
                     className="w-full mt-2 px-3 py-2 bg-yellow-600 text-white text-sm rounded-lg font-medium hover:bg-yellow-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
