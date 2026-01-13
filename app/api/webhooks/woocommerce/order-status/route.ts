@@ -66,7 +66,10 @@ export async function POST(request: NextRequest) {
     const url = `/orders/${orderId}`;
 
     // Initialize push result
-    let pushResult = { success: false, error: 'No customer email' };
+    let pushResult: { success: boolean; messageId?: string; error?: string } = {
+      success: false,
+      error: 'No customer email',
+    };
 
     // Send push notification if customer email exists
     if (customerEmail) {
