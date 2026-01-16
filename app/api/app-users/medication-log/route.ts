@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
       weekEnd.setDate(weekEnd.getDate() + 6);
       weekEnd.setHours(23, 59, 59, 999);
 
-      const weekLogs = logs.filter(log => {
+      const weekLogs = logs.filter((log: typeof logs[number]) => {
         const logDate = new Date(log.takenAt);
         return logDate >= weekStart && logDate <= weekEnd;
       });
