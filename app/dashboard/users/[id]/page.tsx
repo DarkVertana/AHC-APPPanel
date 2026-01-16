@@ -26,6 +26,7 @@ type User = {
     date: string;
     tasks: boolean[];
   };
+  woocommerceCustomerId?: number;
 };
 
 type MedicationLog = {
@@ -225,6 +226,14 @@ export default function UserDetailsPage() {
                   })}
                 </p>
               </div>
+              {user.woocommerceCustomerId && (
+                <div>
+                  <p className="text-sm text-[#7895b3] mb-1">WooCommerce Customer ID</p>
+                  <p className="text-base font-medium text-[#435970]">
+                    #{user.woocommerceCustomerId}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

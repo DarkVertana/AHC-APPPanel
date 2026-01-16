@@ -83,6 +83,7 @@ export async function GET(request: NextRequest) {
       totalWorkouts: user.totalWorkouts,
       totalCalories: user.totalCalories,
       streak: user.streak,
+      woocommerceCustomerId: user.woocommerceCustomerId,
     }));
 
     return NextResponse.json({
