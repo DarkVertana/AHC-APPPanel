@@ -89,17 +89,17 @@ export async function PUT(
     };
 
     // Normalize text fields to prevent encoding errors
-    if (title) title = normalizeText(title);
-    if (tagline) tagline = normalizeText(tagline);
-    if (description) description = normalizeText(description);
+    const normalizedTitle = title ? normalizeText(title) : title;
+    const normalizedTagline = tagline ? normalizeText(tagline) : tagline;
+    const normalizedDescription = description ? normalizeText(description) : description;
 
     // Update blog
     const blog = await prisma.blog.update({
       where: { id },
       data: {
-        ...(title && { title }),
-        ...(tagline && { tagline }),
-        ...(description && { description }),
+        ...(normalizedTitle && { title: normalizedTitle }),
+        ...(normalizedTagline && { tagline: normalizedTagline }),
+        ...(normalizedDescription && { description: normalizedDescription }),
         ...(tags && { tags }),
         ...(featuredImage && { featuredImage }),
         ...(status && { status }),

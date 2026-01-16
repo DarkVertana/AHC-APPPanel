@@ -106,16 +106,16 @@ export async function POST(request: NextRequest) {
     };
 
     // Normalize text fields to prevent encoding errors
-    title = normalizeText(title);
-    tagline = normalizeText(tagline);
-    description = normalizeText(description);
+    const normalizedTitle = normalizeText(title);
+    const normalizedTagline = normalizeText(tagline);
+    const normalizedDescription = normalizeText(description);
 
     // Create blog
     const blog = await prisma.blog.create({
       data: {
-        title,
-        tagline,
-        description,
+        title: normalizedTitle,
+        tagline: normalizedTagline,
+        description: normalizedDescription,
         tags,
         featuredImage,
         status: status || 'published',

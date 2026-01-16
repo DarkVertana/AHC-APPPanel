@@ -67,11 +67,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Get notification content
-    const { title, body: message } = getSubscriptionStatusMessage(subscriptionStatus, String(subscriptionNumber));
+    const { title, body: baseMessage } = getSubscriptionStatusMessage(subscriptionStatus, String(subscriptionNumber));
     const icon = getSubscriptionStatusIcon(subscriptionStatus);
     const url = `/subscriptions/${subscriptionId}`;
 
     // Add next payment date if available
+    let message = baseMessage;
     if (nextPaymentDate && subscriptionStatus === 'active') {
       const paymentDate = new Date(nextPaymentDate).toLocaleDateString();
       message += ` Next payment: ${paymentDate}`;
