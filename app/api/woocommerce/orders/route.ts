@@ -187,13 +187,28 @@ export async function GET(request: NextRequest) {
         })
       );
 
-      // STEP 4: Transform orders to return ONLY required fields per API_PAYLOAD_REQUIREMENTS.md
-      // Required: id, number, status, date_created, total, line_items, meta_data (tracking only)
+      // STEP 4: Transform orders to return required fields per API_PAYLOAD_REQUIREMENTS.md
+      // Required: id, number, status, date_created, total, line_items, meta_data (tracking + medication_schedule ACF fields)
       const enrichedOrders = ordersArray.map((order: any) => {
-        // Filter meta_data to only include tracking-related entries
-        const trackingMetaData = (order.meta_data || []).filter((meta: any) => {
-          const key = (meta.key || '').toLowerCase();
-          return key.includes('tracking') || key.includes('track');
+        // Filter meta_data to include:
+        // 1. Tracking-related entries
+        // 2. Medication schedule ACF fields (without underscore prefix - these contain actual values)
+        const relevantMetaData = (order.meta_data || []).filter((meta: any) => {
+          const key = (meta.key || '');
+          const keyLower = key.toLowerCase();
+          
+          // Include tracking entries
+          if (keyLower.includes('tracking') || keyLower.includes('track')) {
+            return true;
+          }
+          
+          // Include medication_schedule ACF fields (without underscore prefix - these have actual values)
+          // Fields starting with underscore (_medication_schedule) are field references, not values
+          if (key.startsWith('medication_schedule') && !key.startsWith('_')) {
+            return true;
+          }
+          
+          return false;
         });
 
         // Transform line items to only include required fields
@@ -225,7 +240,7 @@ export async function GET(request: NextRequest) {
           date_created: order.date_created || order.date_created_gmt || null,
           total: order.total || '0',
           line_items: transformedLineItems,
-          meta_data: trackingMetaData,
+          meta_data: relevantMetaData,
         };
       });
 

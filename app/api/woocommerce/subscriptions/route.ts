@@ -229,8 +229,9 @@ export async function GET(request: NextRequest) {
         console.log(`[Subscriptions API] Subscriptions:`, JSON.stringify(subscriptionSummary, null, 2));
       }
 
-      // Transform subscriptions to return ONLY required fields per API_PAYLOAD_REQUIREMENTS.md
+      // Transform subscriptions to return required fields per API_PAYLOAD_REQUIREMENTS.md
       // Required: id, number, status, date_created, next_payment_date, end_date, currency, total, billing_period, billing_interval, line_items
+      // Also include billing and shipping for subscription details page
       const enrichedSubscriptions = subscriptionsArray.map((sub: any) => {
         // Transform line_items to only include required fields
         const transformedLineItems = (sub.line_items || []).map((item: any) => ({
@@ -254,6 +255,33 @@ export async function GET(request: NextRequest) {
           billing_period: sub.billing_period || null,
           billing_interval: sub.billing_interval || 1,
           line_items: transformedLineItems,
+          // Include billing and shipping addresses for subscription details
+          billing: sub.billing ? {
+            first_name: sub.billing.first_name || '',
+            last_name: sub.billing.last_name || '',
+            email: sub.billing.email || '',
+            phone: sub.billing.phone || '',
+            address_1: sub.billing.address_1 || '',
+            address_2: sub.billing.address_2 || '',
+            city: sub.billing.city || '',
+            state: sub.billing.state || '',
+            postcode: sub.billing.postcode || '',
+            country: sub.billing.country || '',
+          } : null,
+          shipping: sub.shipping ? {
+            first_name: sub.shipping.first_name || '',
+            last_name: sub.shipping.last_name || '',
+            address_1: sub.shipping.address_1 || '',
+            address_2: sub.shipping.address_2 || '',
+            city: sub.shipping.city || '',
+            state: sub.shipping.state || '',
+            postcode: sub.shipping.postcode || '',
+            country: sub.shipping.country || '',
+          } : null,
+          // Include payment info
+          payment_method: sub.payment_method || null,
+          payment_method_title: sub.payment_method_title || null,
+          shipping_total: sub.shipping_total || '0',
         };
       });
 

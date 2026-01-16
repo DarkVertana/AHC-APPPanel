@@ -127,12 +127,27 @@ export async function GET(
     }
 
     // Helper function to enrich order with product details using cached products
-    // Returns ONLY fields required per API_PAYLOAD_REQUIREMENTS.md
+    // Returns required fields per API_PAYLOAD_REQUIREMENTS.md
     function enrichOrderWithProducts(order: any, productsMap: Map<number, any>) {
-      // Filter meta_data to only include tracking-related entries
-      const trackingMetaData = (order.meta_data || []).filter((meta: any) => {
-        const key = (meta.key || '').toLowerCase();
-        return key.includes('tracking') || key.includes('track');
+      // Filter meta_data to include:
+      // 1. Tracking-related entries
+      // 2. Medication schedule ACF fields (without underscore prefix - these contain actual values)
+      const relevantMetaData = (order.meta_data || []).filter((meta: any) => {
+        const key = (meta.key || '');
+        const keyLower = key.toLowerCase();
+        
+        // Include tracking entries
+        if (keyLower.includes('tracking') || keyLower.includes('track')) {
+          return true;
+        }
+        
+        // Include medication_schedule ACF fields (without underscore prefix - these have actual values)
+        // Fields starting with underscore (_medication_schedule) are field references, not values
+        if (key.startsWith('medication_schedule') && !key.startsWith('_')) {
+          return true;
+        }
+        
+        return false;
       });
 
       // Transform line items to only include required fields
@@ -156,7 +171,7 @@ export async function GET(
         };
       });
 
-      // Return only required fields per API_PAYLOAD_REQUIREMENTS.md
+      // Return required fields per API_PAYLOAD_REQUIREMENTS.md
       return {
         id: order.id,
         number: order.number || `ORD-${order.id}`,
@@ -164,7 +179,7 @@ export async function GET(
         date_created: order.date_created || order.date_created_gmt || null,
         total: order.total || '0',
         line_items: transformedLineItems,
-        meta_data: trackingMetaData,
+        meta_data: relevantMetaData,
         type: null as string | null, // Will be set after enrichment
       };
     }
