@@ -57,7 +57,7 @@ export async function PUT(
 
     const { id } = await params;
     const body = await request.json();
-    let { title, tagline, description, tags, featuredImage, status } = body;
+    const { title, tagline, description, tags, featuredImage, status } = body;
 
     // Check if blog exists
     const existingBlog = await prisma.blog.findUnique({

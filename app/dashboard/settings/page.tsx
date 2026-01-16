@@ -1096,7 +1096,7 @@ export default function SettingsPage() {
               <div className="p-6 space-y-4">
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <p className="text-sm text-yellow-800 font-medium mb-2">⚠️ Important: Save this key now</p>
-                  <p className="text-xs text-yellow-700">You won't be able to see this key again. Make sure to copy and store it in a secure location.</p>
+                  <p className="text-xs text-yellow-700">You won&apos;t be able to see this key again. Make sure to copy and store it in a secure location.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-[#435970] mb-2">Your API Key:</label>
@@ -1122,7 +1122,7 @@ export default function SettingsPage() {
                     onClick={() => { setIsApiKeyModalOpen(false); setNewApiKey(null); }}
                     className="px-6 py-2 bg-[#435970] text-white rounded-lg font-medium hover:bg-[#7895b3] transition-colors"
                   >
-                    I've Saved This Key
+                    I&apos;ve Saved This Key
                   </button>
                 </div>
               </div>
@@ -1148,7 +1148,7 @@ export default function SettingsPage() {
               <div className="p-6 space-y-4">
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <p className="text-sm text-yellow-800 font-medium mb-2">⚠️ Important: Save this token now</p>
-                  <p className="text-xs text-yellow-700">You won't be able to see this token again. Make sure to copy and store it in a secure location.</p>
+                  <p className="text-xs text-yellow-700">You won&apos;t be able to see this token again. Make sure to copy and store it in a secure location.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-[#435970] mb-2">Your Secret Token:</label>
@@ -1174,7 +1174,7 @@ export default function SettingsPage() {
                     onClick={() => { setIsSecretTokenModalOpen(false); setNewSecretToken(null); }}
                     className="px-6 py-2 bg-[#435970] text-white rounded-lg font-medium hover:bg-[#7895b3] transition-colors"
                   >
-                    I've Saved This Token
+                    I&apos;ve Saved This Token
                   </button>
                 </div>
               </div>
@@ -1405,8 +1405,8 @@ export default function SettingsPage() {
               <p className="text-sm text-[#435970] font-medium mb-2">How to get your API credentials:</p>
               <ol className="text-xs text-[#7895b3] list-decimal list-inside space-y-1">
                 <li>Go to WooCommerce → Settings → Advanced → REST API</li>
-                <li>Click "Add Key" to create a new API key</li>
-                <li>Set permissions to "Read/Write"</li>
+                <li>Click &quot;Add Key&quot; to create a new API key</li>
+                <li>Set permissions to &quot;Read/Write&quot;</li>
                 <li>Copy the Consumer Key and Consumer Secret</li>
               </ol>
             </div>
@@ -1460,7 +1460,7 @@ export default function SettingsPage() {
               </p>
               <ol className="text-xs text-blue-700 list-decimal list-inside space-y-1 mb-3">
                 <li>Go to Firebase Console → Your Project → Project Settings → Service Accounts tab</li>
-                <li>Click "Generate New Private Key" to download the service account JSON file</li>
+                <li>Click &quot;Generate New Private Key&quot; to download the service account JSON file</li>
                 <li>Set environment variable <code className="bg-blue-100 px-1 rounded">FIREBASE_SERVICE_ACCOUNT</code> to the JSON content, OR</li>
                 <li>Set <code className="bg-blue-100 px-1 rounded">GOOGLE_APPLICATION_CREDENTIALS</code> to the file path</li>
                 <li>Enter your Firebase Project ID below (from Project Settings → General tab)</li>

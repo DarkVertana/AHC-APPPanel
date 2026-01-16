@@ -227,7 +227,7 @@ export async function GET(request: NextRequest) {
 
       // Method 1: Fetch all subscriptions directly and filter by email (primary method)
       console.log(`[Subscriptions API] Method 1: Fetching all subscriptions and filtering by email: ${email}`);
-      let allSubscriptions = await fetchSubscriptionsByCustomer(null);
+      const allSubscriptions = await fetchSubscriptionsByCustomer(null);
       console.log(`[Subscriptions API] Fetched ${allSubscriptions.length} total subscriptions from WooCommerce`);
 
       let subscriptionsArray = filterSubscriptionsByEmail(allSubscriptions, email);

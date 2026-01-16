@@ -19,10 +19,15 @@ function DashboardLayoutContent({
 
   // Auto-expand Medicines menu if we're on the medicines or category page
   useEffect(() => {
-    if ((pathname === '/dashboard/medicines' || pathname === '/dashboard/medicines/category') && !expandedMenus.includes('medicines')) {
-      setExpandedMenus([...expandedMenus, 'medicines']);
+    const isMedicinesPage = pathname === '/dashboard/medicines' || pathname === '/dashboard/medicines/category';
+    if (isMedicinesPage) {
+      // Use setTimeout to avoid synchronous setState in effect
+      const timeoutId = setTimeout(() => {
+        setExpandedMenus(prev => prev.includes('medicines') ? prev : [...prev, 'medicines']);
+      }, 0);
+      return () => clearTimeout(timeoutId);
     }
-  }, [pathname, expandedMenus]);
+  }, [pathname]);
 
   // Redirect to login if not authenticated
   useEffect(() => {

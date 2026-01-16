@@ -8,7 +8,7 @@ import { prisma } from '@/lib/prisma';
  * Diagnostic endpoint to test FCM configuration
  * Returns detailed information about FCM setup status
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
 
@@ -109,7 +109,9 @@ export async function GET(request: NextRequest) {
         
         // Try to check if file exists (in Node.js environment)
         try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const fs = require('fs');
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const path = require('path');
           const filePath = process.env.GOOGLE_APPLICATION_CREDENTIALS!;
           

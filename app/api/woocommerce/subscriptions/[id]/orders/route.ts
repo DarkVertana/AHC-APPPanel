@@ -319,7 +319,7 @@ export async function GET(
       }
 
       const orders = await ordersResponse.json();
-      let ordersArray = Array.isArray(orders) ? orders : [orders];
+      const ordersArray = Array.isArray(orders) ? orders : [orders];
 
       // STEP 1: Collect all unique product_ids from all orders
       const allProductIds: number[] = [];

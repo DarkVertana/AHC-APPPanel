@@ -3,11 +3,11 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
 import { prisma } from '@/lib/prisma';
 
-export async function POST(req: NextRequest) {
+export async function POST(_req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session || (session.user as any)?.role !== 'ADMIN') {
+    if (!session || (session.user as { role?: string })?.role !== 'ADMIN') {
       return NextResponse.json(
         { error: 'Unauthorized - Admin access required' },
         { status: 401 }
@@ -62,10 +62,10 @@ export async function POST(req: NextRequest) {
       results
     });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Reset error:', error);
     return NextResponse.json(
-      { error: 'Failed to reset data', details: error.message },
+      { error: 'Failed to reset data', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }

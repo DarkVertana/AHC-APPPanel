@@ -20,7 +20,7 @@ function getBaseUrl(requestUrl?: string): string {
     try {
       const url = new URL(requestUrl);
       return `${url.protocol}//${url.host}`;
-    } catch (e) {
+    } catch {
       // Invalid URL, continue
     }
   }
@@ -80,7 +80,7 @@ export function getImageUrl(
       try {
         const url = new URL(requestUrl);
         return `${url.protocol}//${url.host}${normalizedPath}`;
-      } catch (e) {
+      } catch {
         // Fallback to relative path if URL parsing fails
         return normalizedPath;
       }

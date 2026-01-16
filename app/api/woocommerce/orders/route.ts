@@ -148,7 +148,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Fetch orders
-      let ordersUrl = new URL(`${apiUrl}/orders`);
+      const ordersUrl = new URL(`${apiUrl}/orders`);
       
       if (customerId) {
         ordersUrl.searchParams.append('customer', customerId.toString());

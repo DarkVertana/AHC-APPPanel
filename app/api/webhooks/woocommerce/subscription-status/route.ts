@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get notification content
-    let { title, body: message } = getSubscriptionStatusMessage(subscriptionStatus, String(subscriptionNumber));
+    const { title, body: message } = getSubscriptionStatusMessage(subscriptionStatus, String(subscriptionNumber));
     const icon = getSubscriptionStatusIcon(subscriptionStatus);
     const url = `/subscriptions/${subscriptionId}`;
 

@@ -236,7 +236,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-[#435970] mb-2">Dashboard Overview</h1>
-        <p className="text-[#7895b3]">Monitor your platform's performance and user activity</p>
+        <p className="text-[#7895b3]">Monitor your platform&apos;s performance and user activity</p>
       </div>
 
       {/* Quick Stats Grid */}
@@ -527,7 +527,7 @@ export default function DashboardPage() {
 
         {/* Activity Stats */}
         <div className="bg-white rounded-lg p-6 border border-[#dfedfb]">
-          <h3 className="text-lg font-bold text-[#435970] mb-4">Today's Activity</h3>
+          <h3 className="text-lg font-bold text-[#435970] mb-4">Today&apos;s Activity</h3>
           <div className="space-y-4">
             <div className="p-4 bg-gradient-to-br from-[#435970] to-[#7895b3] rounded-lg text-white">
               <p className="text-sm opacity-90 mb-1">Daily Tasks Completed</p>

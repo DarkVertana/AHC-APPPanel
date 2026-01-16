@@ -161,7 +161,7 @@ export default function LogDataPage() {
           </p>
         </div>
         <div className="bg-white rounded-lg p-4 border border-[#dfedfb]">
-          <p className="text-sm text-[#7895b3] mb-1">Today's Logs</p>
+          <p className="text-sm text-[#7895b3] mb-1">Today&apos;s Logs</p>
           <p className="text-2xl font-bold text-[#435970]">
             {stats.todayLogs}
           </p>

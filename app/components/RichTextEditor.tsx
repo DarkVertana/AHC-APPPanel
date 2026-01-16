@@ -166,7 +166,7 @@ export default function RichTextEditor({
             }`}
             title="Quote"
           >
-            <span className="text-sm">"</span>
+            <span className="text-sm">&quot;</span>
           </button>
         </div>
 

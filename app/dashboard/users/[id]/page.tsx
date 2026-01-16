@@ -43,7 +43,7 @@ type MedicationWeek = {
 };
 
 export default function UserDetailsPage() {
-  const router = useRouter();
+  useRouter();
   const params = useParams();
   const userId = params?.id as string;
 
@@ -52,7 +52,7 @@ export default function UserDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMedicationLogs, setLoadingMedicationLogs] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [weightUnit, setWeightUnit] = useState('lbs');
+  const [weightUnit] = useState('lbs');
 
   useEffect(() => {
     const fetchUserDetails = async () => {

@@ -59,14 +59,9 @@ next-env.d.ts
 
 /lib/generated/prisma
 
-#scripts
-scripts/*.js
-scripts/*.ps1
-scripts/*.sh
+# scripts
+scripts/
 
-#tmpclaude
-tmpclaude-9e8a-cwd
-tmpclaude-4bba-cwd
-tmpclaude-658c-cwd
-tmpclaude-b790-cwd
-tmpclaude-c23f-cwd
+# Claude Code
+.claude/
+tmpclaude-*
