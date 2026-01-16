@@ -103,6 +103,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get blogs with pagination
+    // Per API_PAYLOAD_REQUIREMENTS.md: List view should NOT include description (only detail view)
     const [blogs, total] = await Promise.all([
       prisma.blog.findMany({
         where,
@@ -113,11 +114,10 @@ export async function GET(request: NextRequest) {
           id: true,
           title: true,
           tagline: true,
-          description: true,
+          // description excluded for list view per API_PAYLOAD_REQUIREMENTS.md
           tags: true,
           featuredImage: true,
           createdAt: true,
-          updatedAt: true,
         },
       }),
       prisma.blog.count({ where }),
@@ -125,18 +125,18 @@ export async function GET(request: NextRequest) {
 
     // Get the request URL for generating absolute image URLs
     const requestUrl = request.url;
-    
+
+    // Return only required fields per API_PAYLOAD_REQUIREMENTS.md (Section 11)
+    // List: id, title, tagline, featuredImage, createdAt, tags
     return NextResponse.json({
       success: true,
       blogs: blogs.map(blog => ({
         id: blog.id,
         title: blog.title,
         tagline: blog.tagline,
-        description: blog.description,
-        tags: blog.tags,
         featuredImage: getImageUrl(blog.featuredImage, requestUrl, true), // Force absolute URL for mobile
         createdAt: blog.createdAt.toISOString(),
-        updatedAt: blog.updatedAt.toISOString(),
+        tags: blog.tags,
       })),
       pagination: {
         page,

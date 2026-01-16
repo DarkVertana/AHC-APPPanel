@@ -5,6 +5,8 @@
  * Used across multiple API endpoints to maintain DRY principles
  */
 
+import { prisma } from '@/lib/prisma';
+
 export interface WooCommerceCustomer {
   id: number;
   email: string;
@@ -242,4 +244,178 @@ export async function getCustomerByEmailWithFallback(
   }
 
   return null;
+}
+
+/**
+ * Gets cached WooCommerce customer ID from the database
+ * @param email - Customer email address
+ * @returns Cached customer ID if found, null otherwise
+ */
+async function getCachedCustomerId(email: string): Promise<number | null> {
+  try {
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const appUser = await prisma.appUser.findFirst({
+      where: { email: normalizedEmail },
+      select: { woocommerceCustomerId: true },
+    });
+
+    if (appUser?.woocommerceCustomerId) {
+      console.log(`[WooCommerce Helper] Found cached customer ID ${appUser.woocommerceCustomerId} for email ${normalizedEmail}`);
+      return appUser.woocommerceCustomerId;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('[WooCommerce Helper] Error fetching cached customer ID:', error);
+    return null;
+  }
+}
+
+/**
+ * Stores WooCommerce customer ID in the database for future lookups
+ * @param email - Customer email address
+ * @param customerId - WooCommerce customer ID to cache
+ */
+async function cacheCustomerId(email: string, customerId: number): Promise<void> {
+  try {
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Update the AppUser with the WooCommerce customer ID
+    const result = await prisma.appUser.updateMany({
+      where: { email: normalizedEmail },
+      data: { woocommerceCustomerId: customerId },
+    });
+
+    if (result.count > 0) {
+      console.log(`[WooCommerce Helper] Cached customer ID ${customerId} for email ${normalizedEmail}`);
+    } else {
+      console.log(`[WooCommerce Helper] No AppUser found for email ${normalizedEmail} to cache customer ID`);
+    }
+  } catch (error) {
+    console.error('[WooCommerce Helper] Error caching customer ID:', error);
+    // Don't throw - caching failure shouldn't break the main flow
+  }
+}
+
+/**
+ * Gets a WooCommerce customer by email with database caching
+ * First checks if customer ID is cached in database, then falls back to API call
+ * Caches the customer ID for future lookups
+ *
+ * @param apiUrl - Normalized WooCommerce API URL
+ * @param authHeaders - Authentication headers for WooCommerce API
+ * @param email - Customer email address
+ * @returns Customer object if found, null otherwise
+ */
+export async function getCustomerByEmailCached(
+  apiUrl: string,
+  authHeaders: HeadersInit,
+  email: string
+): Promise<WooCommerceCustomer | null> {
+  const normalizedEmail = email.toLowerCase().trim();
+
+  // Step 1: Check if customer ID is cached in database
+  const cachedCustomerId = await getCachedCustomerId(normalizedEmail);
+
+  if (cachedCustomerId) {
+    // Fetch customer by ID directly (faster than email search)
+    console.log(`[WooCommerce Helper] Using cached customer ID ${cachedCustomerId}`);
+
+    try {
+      const customerByIdResponse = await fetch(`${apiUrl}/customers/${cachedCustomerId}`, {
+        method: 'GET',
+        headers: authHeaders,
+      });
+
+      if (customerByIdResponse.ok) {
+        const contentType = customerByIdResponse.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const customer = await customerByIdResponse.json();
+          console.log(`[WooCommerce Helper] Retrieved customer ${cachedCustomerId} from cache`);
+          return customer;
+        }
+      } else if (customerByIdResponse.status === 404) {
+        // Customer ID no longer valid in WooCommerce - clear the cache
+        console.log(`[WooCommerce Helper] Cached customer ID ${cachedCustomerId} not found in WooCommerce, clearing cache`);
+        await prisma.appUser.updateMany({
+          where: { email: normalizedEmail },
+          data: { woocommerceCustomerId: null },
+        });
+      }
+    } catch (error) {
+      console.error('[WooCommerce Helper] Error fetching customer by cached ID:', error);
+    }
+  }
+
+  // Step 2: Fall back to email lookup
+  const customer = await getCustomerByEmail(apiUrl, authHeaders, normalizedEmail);
+
+  // Step 3: Cache the customer ID if found
+  if (customer?.id) {
+    await cacheCustomerId(normalizedEmail, customer.id);
+  }
+
+  return customer;
+}
+
+/**
+ * Gets a WooCommerce customer by email with database caching and fallback methods
+ * First checks database cache, then API, then fallback to orders/subscriptions
+ * Caches the customer ID for future lookups
+ *
+ * @param apiUrl - Normalized WooCommerce API URL
+ * @param authHeaders - Authentication headers for WooCommerce API
+ * @param email - Customer email address
+ * @returns Customer object if found, null otherwise
+ */
+export async function getCustomerByEmailCachedWithFallback(
+  apiUrl: string,
+  authHeaders: HeadersInit,
+  email: string
+): Promise<WooCommerceCustomer | null> {
+  const normalizedEmail = email.toLowerCase().trim();
+
+  // Step 1: Check if customer ID is cached in database
+  const cachedCustomerId = await getCachedCustomerId(normalizedEmail);
+
+  if (cachedCustomerId) {
+    // Fetch customer by ID directly (faster than email search)
+    console.log(`[WooCommerce Helper] Using cached customer ID ${cachedCustomerId}`);
+
+    try {
+      const customerByIdResponse = await fetch(`${apiUrl}/customers/${cachedCustomerId}`, {
+        method: 'GET',
+        headers: authHeaders,
+      });
+
+      if (customerByIdResponse.ok) {
+        const contentType = customerByIdResponse.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const customer = await customerByIdResponse.json();
+          console.log(`[WooCommerce Helper] Retrieved customer ${cachedCustomerId} from cache`);
+          return customer;
+        }
+      } else if (customerByIdResponse.status === 404) {
+        // Customer ID no longer valid in WooCommerce - clear the cache
+        console.log(`[WooCommerce Helper] Cached customer ID ${cachedCustomerId} not found in WooCommerce, clearing cache`);
+        await prisma.appUser.updateMany({
+          where: { email: normalizedEmail },
+          data: { woocommerceCustomerId: null },
+        });
+      }
+    } catch (error) {
+      console.error('[WooCommerce Helper] Error fetching customer by cached ID:', error);
+    }
+  }
+
+  // Step 2: Fall back to email lookup with fallback methods
+  const customer = await getCustomerByEmailWithFallback(apiUrl, authHeaders, normalizedEmail);
+
+  // Step 3: Cache the customer ID if found
+  if (customer?.id) {
+    await cacheCustomerId(normalizedEmail, customer.id);
+  }
+
+  return customer;
 }

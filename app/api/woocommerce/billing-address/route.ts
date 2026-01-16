@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
-import { normalizeApiUrl, buildAuthHeaders, getCustomerByEmailWithFallback } from '@/lib/woocommerce-helpers';
+import { normalizeApiUrl, buildAuthHeaders, getCustomerByEmailCachedWithFallback } from '@/lib/woocommerce-helpers';
 
 // Cache settings for 5 minutes to reduce database queries
 let cachedSettings: any = null;
@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
 
       // OPTIMIZED: Use shared helper with fallback (tries customer API first, then orders/subscriptions)
       console.log(`[Billing Address API] Looking up customer by email: ${email}`);
-      const customer = await getCustomerByEmailWithFallback(apiUrl, authHeaders, email);
+      const customer = await getCustomerByEmailCachedWithFallback(apiUrl, authHeaders, email);
 
       // If customer still not found, return empty billing address
       if (!customer) {
@@ -282,7 +282,7 @@ export async function PUT(request: NextRequest) {
 
     // OPTIMIZED: Use shared helper with fallback to find customer
     console.log(`[Billing Address PUT] Looking up customer by email: ${normalizedEmail}`);
-    let customer = await getCustomerByEmailWithFallback(apiUrl, authHeaders, normalizedEmail);
+    let customer = await getCustomerByEmailCachedWithFallback(apiUrl, authHeaders, normalizedEmail);
     let customerId: number | null = customer?.id || null;
 
     // If customer still not found, create a new customer with the billing address

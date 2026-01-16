@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
 import { filterFieldsArray, parseFieldsParam } from '@/lib/field-filter';
-import { normalizeApiUrl, buildAuthHeaders, getCustomerByEmail } from '@/lib/woocommerce-helpers';
+import { normalizeApiUrl, buildAuthHeaders, getCustomerByEmailCached } from '@/lib/woocommerce-helpers';
 
 // Cache settings for 5 minutes to reduce database queries
 let cachedSettings: any = null;
@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
 
       // OPTIMIZED: Get customer by email first (server-side filtering)
       console.log(`[Subscriptions API] Looking up customer by email: ${email}`);
-      const customer = await getCustomerByEmail(apiUrl, authHeaders, email);
+      const customer = await getCustomerByEmailCached(apiUrl, authHeaders, email);
 
       let subscriptionsArray: any[] = [];
       let customerId: number | null = null;
@@ -228,16 +228,33 @@ export async function GET(request: NextRequest) {
         console.log(`[Subscriptions API] Subscriptions:`, JSON.stringify(subscriptionSummary, null, 2));
       }
 
-      // Enrich subscriptions with all status information
-      const enrichedSubscriptions = subscriptionsArray.map((sub: any) => ({
-        ...sub,
-        status: sub.status || 'unknown',
-        date_created: sub.date_created || sub.date_created_gmt || null,
-        date_modified: sub.date_modified || sub.date_modified_gmt || null,
-        next_payment_date: sub.next_payment_date || sub.next_payment_date_gmt || null,
-        end_date: sub.end_date || sub.end_date_gmt || null,
-        trial_end_date: sub.trial_end_date || sub.trial_end_date_gmt || null,
-      }));
+      // Transform subscriptions to return ONLY required fields per API_PAYLOAD_REQUIREMENTS.md
+      // Required: id, number, status, date_created, next_payment_date, end_date, currency, total, billing_period, billing_interval, line_items
+      const enrichedSubscriptions = subscriptionsArray.map((sub: any) => {
+        // Transform line_items to only include required fields
+        const transformedLineItems = (sub.line_items || []).map((item: any) => ({
+          id: item.id,
+          name: item.name || 'Unknown Product',
+          quantity: item.quantity || 1,
+          price: item.price || item.subtotal || '0',
+          total: item.total || '0',
+          image: item.image || { src: null },
+        }));
+
+        return {
+          id: sub.id,
+          number: sub.number || `SUB-${sub.id}`,
+          status: sub.status || 'unknown',
+          date_created: sub.date_created || sub.date_created_gmt || null,
+          next_payment_date: sub.next_payment_date || sub.next_payment_date_gmt || null,
+          end_date: sub.end_date || sub.end_date_gmt || null,
+          currency: sub.currency || 'USD',
+          total: sub.total || '0',
+          billing_period: sub.billing_period || null,
+          billing_interval: sub.billing_interval || 1,
+          line_items: transformedLineItems,
+        };
+      });
 
       return {
         success: true,

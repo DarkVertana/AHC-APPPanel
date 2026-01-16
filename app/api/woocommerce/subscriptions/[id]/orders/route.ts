@@ -127,57 +127,45 @@ export async function GET(
     }
 
     // Helper function to enrich order with product details using cached products
+    // Returns ONLY fields required per API_PAYLOAD_REQUIREMENTS.md
     function enrichOrderWithProducts(order: any, productsMap: Map<number, any>) {
-      // Preserve all original order data including meta_data
-      const enrichedOrder: any = {
-        ...order,
-        // Preserve meta_data array completely (includes ACF fields)
-        meta_data: order.meta_data || [],
-      };
+      // Filter meta_data to only include tracking-related entries
+      const trackingMetaData = (order.meta_data || []).filter((meta: any) => {
+        const key = (meta.key || '').toLowerCase();
+        return key.includes('tracking') || key.includes('track');
+      });
 
-      // Enrich line items with product details from cache
-      if (order.line_items && Array.isArray(order.line_items)) {
-        const enrichedItems = order.line_items.map((item: any) => {
-          const productDetails: any = {
-            id: item.id,
-            name: item.name || 'Unknown Product',
-            quantity: item.quantity || 0,
-            price: item.price || '0',
-            subtotal: item.subtotal || '0',
-            total: item.total || '0',
-            sku: item.sku || '',
-            image: null,
-            product_id: item.product_id || null,
-            variation_id: item.variation_id || null,
-          };
+      // Transform line items to only include required fields
+      const transformedLineItems = (order.line_items || []).map((item: any) => {
+        let imageSrc = null;
 
-          // Get product details from cache (if available)
-          if (item.product_id && productsMap.has(item.product_id)) {
-            const product = productsMap.get(item.product_id);
-            if (product.images && product.images.length > 0) {
-              productDetails.image = product.images[0].src || null;
-            }
-            if (product.name) {
-              productDetails.name = product.name;
-            }
+        // Get product image from cache (if available)
+        if (item.product_id && productsMap.has(item.product_id)) {
+          const product = productsMap.get(item.product_id);
+          if (product.images && product.images.length > 0) {
+            imageSrc = product.images[0].src || null;
           }
+        }
 
-          return productDetails;
-        });
+        return {
+          name: item.name || 'Unknown Product',
+          quantity: item.quantity || 1,
+          price: item.price || item.subtotal || '0',
+          total: item.total || '0',
+          image: { src: imageSrc },
+        };
+      });
 
-        enrichedOrder.items = enrichedItems;
-      } else {
-        enrichedOrder.items = [];
-      }
-
-      // Add normalized date fields
-      enrichedOrder.status = order.status || 'unknown';
-      enrichedOrder.date_created = order.date_created || order.date_created_gmt || null;
-      enrichedOrder.date_modified = order.date_modified || order.date_modified_gmt || null;
-      enrichedOrder.date_completed = order.date_completed || order.date_completed_gmt || null;
-      enrichedOrder.date_paid = order.date_paid || order.date_paid_gmt || null;
-
-      return enrichedOrder;
+      // Return only required fields per API_PAYLOAD_REQUIREMENTS.md
+      return {
+        id: order.id,
+        number: order.number || `ORD-${order.id}`,
+        status: order.status || 'unknown',
+        date_created: order.date_created || order.date_created_gmt || null,
+        total: order.total || '0',
+        line_items: transformedLineItems,
+        meta_data: trackingMetaData,
+      };
     }
 
     // Helper function to fetch subscription orders from WooCommerce

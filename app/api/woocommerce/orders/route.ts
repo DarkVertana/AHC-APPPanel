@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
 import { filterFieldsArray, parseFieldsParam } from '@/lib/field-filter';
-import { normalizeApiUrl, buildAuthHeaders, getCustomerByEmail } from '@/lib/woocommerce-helpers';
+import { normalizeApiUrl, buildAuthHeaders, getCustomerByEmailCached } from '@/lib/woocommerce-helpers';
 
 // Cache settings for 5 minutes to reduce database queries
 let cachedSettings: any = null;
@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
 
       // OPTIMIZED: Get customer by email first (server-side filtering)
       console.log(`[Orders API] Looking up customer by email: ${email}`);
-      const customer = await getCustomerByEmail(apiUrl, authHeaders, email);
+      const customer = await getCustomerByEmailCached(apiUrl, authHeaders, email);
 
       let customerId: number | null = null;
       let ordersArray: any[] = [];
@@ -186,57 +186,45 @@ export async function GET(request: NextRequest) {
         })
       );
 
-      // STEP 4: Enrich orders using the cached productsMap
+      // STEP 4: Transform orders to return ONLY required fields per API_PAYLOAD_REQUIREMENTS.md
+      // Required: id, number, status, date_created, total, line_items, meta_data (tracking only)
       const enrichedOrders = ordersArray.map((order: any) => {
-        if (!order.line_items || !Array.isArray(order.line_items)) {
-          return {
-            ...order,
-            items: [],
-            status: order.status || 'unknown',
-            date_created: order.date_created || order.date_created_gmt || null,
-            date_modified: order.date_modified || order.date_modified_gmt || null,
-            date_completed: order.date_completed || order.date_completed_gmt || null,
-            date_paid: order.date_paid || order.date_paid_gmt || null,
-          };
-        }
+        // Filter meta_data to only include tracking-related entries
+        const trackingMetaData = (order.meta_data || []).filter((meta: any) => {
+          const key = (meta.key || '').toLowerCase();
+          return key.includes('tracking') || key.includes('track');
+        });
 
-        // Enrich each line item with product details from cache
-        const enrichedItems = order.line_items.map((item: any) => {
-          const productDetails: any = {
-            id: item.id,
-            name: item.name || 'Unknown Product',
-            quantity: item.quantity || 0,
-            price: item.price || '0',
-            subtotal: item.subtotal || '0',
-            total: item.total || '0',
-            sku: item.sku || '',
-            image: null,
-            product_id: item.product_id || null,
-            variation_id: item.variation_id || null,
-          };
+        // Transform line items to only include required fields
+        const transformedLineItems = (order.line_items || []).map((item: any) => {
+          let imageSrc = null;
 
-          // Get product details from cache (if available)
+          // Get product image from cache (if available)
           if (item.product_id && productsMap.has(item.product_id)) {
             const product = productsMap.get(item.product_id);
             if (product.images && product.images.length > 0) {
-              productDetails.image = product.images[0].src || null;
-            }
-            if (product.name) {
-              productDetails.name = product.name;
+              imageSrc = product.images[0].src || null;
             }
           }
 
-          return productDetails;
+          return {
+            name: item.name || 'Unknown Product',
+            quantity: item.quantity || 1,
+            price: item.price || item.subtotal || '0',
+            total: item.total || '0',
+            image: { src: imageSrc },
+          };
         });
 
+        // Return only required fields
         return {
-          ...order,
-          items: enrichedItems,
+          id: order.id,
+          number: order.number || `ORD-${order.id}`,
           status: order.status || 'unknown',
           date_created: order.date_created || order.date_created_gmt || null,
-          date_modified: order.date_modified || order.date_modified_gmt || null,
-          date_completed: order.date_completed || order.date_completed_gmt || null,
-          date_paid: order.date_paid || order.date_paid_gmt || null,
+          total: order.total || '0',
+          line_items: transformedLineItems,
+          meta_data: trackingMetaData,
         };
       });
 

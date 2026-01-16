@@ -149,7 +149,10 @@ model AppUser {
   
   // Push notifications
   fcmToken       String?  // Firebase Cloud Messaging token for push notifications
-  
+
+  // WooCommerce integration
+  woocommerceCustomerId  Int?     // Cached WooCommerce customer ID for faster API lookups
+
   // Relations
   weightLogs     WeightLog[]
   medicationLogs MedicationLog[]
