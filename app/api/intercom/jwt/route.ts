@@ -1,23 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { validateApiKey } from '@/lib/middleware';
 
 /**
- * Intercom JWT Endpoint
+ * Intercom User Hash Endpoint
  *
- * This endpoint generates a JWT for Intercom Identity Verification.
- * The JWT is signed using the Intercom Identity Verification Secret.
+ * This endpoint generates an HMAC-SHA256 hash for Intercom Identity Verification.
+ * Intercom uses HMAC, not JWT, for identity verification.
  *
  * Request Body:
  * - user_id: string (required) - The unique identifier for the user
- * - email: string (optional) - The user's email address
  *
  * Security:
  * - Requires valid API key in request headers
  * - API key can be sent as 'X-API-Key' header or 'Authorization: Bearer <key>'
  *
  * Response:
- * - jwt: string - The signed JWT token for Intercom verification
+ * - hash: string - The HMAC-SHA256 hash for Intercom identity verification
  */
 export async function POST(request: NextRequest) {
   try {
@@ -58,7 +57,7 @@ export async function POST(request: NextRequest) {
 
     // Parse request body
     const body = await request.json();
-    const { user_id, email } = body;
+    const { user_id } = body;
 
     // Validate required fields
     if (!user_id) {
@@ -68,26 +67,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Build JWT payload
-    const payload: { user_id: string; email?: string } = {
-      user_id: String(user_id),
-    };
+    // Generate HMAC-SHA256 hash for Intercom identity verification
+    const hash = crypto
+      .createHmac('sha256', intercomSecret)
+      .update(String(user_id))
+      .digest('hex');
 
-    if (email) {
-      payload.email = String(email);
-    }
-
-    // Sign the JWT with Intercom secret
-    const token = jwt.sign(payload, intercomSecret, { expiresIn: '1h' });
-
-    return NextResponse.json({ jwt: token });
+    return NextResponse.json({ hash });
   } catch (error) {
-    console.error('Intercom JWT generation error:', error);
+    console.error('Intercom hash generation error:', error);
 
-    // Return detailed error in development, generic in production
     const errorMessage = process.env.NODE_ENV === 'development' && error instanceof Error
       ? error.message
-      : 'An error occurred while generating Intercom JWT';
+      : 'An error occurred while generating Intercom hash';
 
     return NextResponse.json(
       {
