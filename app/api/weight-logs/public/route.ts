@@ -99,11 +99,16 @@ export async function POST(request: NextRequest) {
       orderBy: { date: 'desc' },
     });
 
-    const previousWeight = previousLog?.weight || null;
+    // Use previous log weight, or fall back to initialWeight if this is the first log
+    let previousWeight = previousLog?.weight || null;
+    if (previousWeight === null && appUser.initialWeight) {
+      previousWeight = parseFloat(appUser.initialWeight);
+    }
+
     const changeRaw = previousWeight !== null ? weightNum - previousWeight : null;
     // Round change to 1 decimal place to avoid floating point precision issues
     const change = changeRaw !== null ? Math.round(changeRaw * 10) / 10 : null;
-    
+
     let changeType: string | null = null;
     if (change !== null) {
       if (change > 0) {
