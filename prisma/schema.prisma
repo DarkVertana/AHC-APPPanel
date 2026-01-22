@@ -360,12 +360,41 @@ model FAQ {
   answer      String   @db.Text
   order       Int      @default(0) // For custom ordering
   isActive    Boolean  @default(true)
-  
+
   // Timestamps
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  
+
   @@index([isActive])
   @@index([order])
   @@map("faqs")
+}
+
+model PushNotificationLog {
+  id                String   @id @default(cuid())
+  recipientEmail    String?
+  recipientWpUserId String?
+  recipientFcmToken String?  // Truncated for privacy
+  recipientCount    Int      @default(1)
+  title             String
+  body              String   @db.Text
+  imageUrl          String?
+  dataPayload       Json?
+  source            String   // 'admin' | 'webhook' | 'system'
+  type              String   @default("general")
+  sourceId          String?  // Reference to notification/order/subscription ID
+  status            String   @default("pending") // 'pending' | 'sent' | 'failed' | 'partial'
+  successCount      Int      @default(0)
+  failureCount      Int      @default(0)
+  errorMessage      String?  @db.Text
+  errorCode         String?
+  fcmMessageId      String?
+  createdAt         DateTime @default(now())
+  sentAt            DateTime?
+
+  @@index([source])
+  @@index([status])
+  @@index([createdAt])
+  @@index([recipientEmail])
+  @@map("push_notification_logs")
 }

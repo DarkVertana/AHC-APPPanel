@@ -124,7 +124,8 @@ export async function PUT(
           notification.title,
           notification.description,
           imageUrl,
-          fcmData
+          fcmData,
+          { source: 'admin', type: 'general', sourceId: notification.id }
         );
 
         // Update receiver count if push was successful

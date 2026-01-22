@@ -90,7 +90,8 @@ export async function POST(request: NextRequest) {
           orderId: String(orderId),
           orderStatus,
           url,
-        }
+        },
+        { source: 'webhook', type: 'order', sourceId: String(orderId) }
       );
       console.log('Push result:', pushResult);
     } else {

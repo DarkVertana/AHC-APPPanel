@@ -98,7 +98,8 @@ export async function POST(request: NextRequest) {
           subscriptionId: String(subscriptionId),
           subscriptionStatus,
           url,
-        }
+        },
+        { source: 'webhook', type: 'subscription', sourceId: String(subscriptionId) }
       );
       console.log('Push result:', pushResult);
     } else {

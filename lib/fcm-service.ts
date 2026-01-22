@@ -10,6 +10,21 @@ let firebaseApp: admin.app.App | null = null;
 
 export type NotificationType = 'general' | 'order' | 'subscription' | 'promotion';
 export type NotificationSource = 'admin' | 'webhook' | 'system';
+export type PushLogStatus = 'pending' | 'sent' | 'failed' | 'partial';
+
+export interface PushNotificationLogData {
+  recipientEmail?: string;
+  recipientWpUserId?: string;
+  recipientFcmToken?: string;
+  recipientCount?: number;
+  title: string;
+  body: string;
+  imageUrl?: string;
+  dataPayload?: Record<string, string>;
+  source: NotificationSource;
+  type?: NotificationType;
+  sourceId?: string;
+}
 
 export interface PushNotificationOptions {
   title: string;
@@ -18,6 +33,72 @@ export interface PushNotificationOptions {
   type?: NotificationType;
   icon?: string;
   data?: Record<string, string>;
+}
+
+// ============================================
+// PUSH NOTIFICATION LOGGING FUNCTIONS
+// ============================================
+
+/**
+ * Create a new push notification log entry
+ */
+export async function logPushNotification(data: PushNotificationLogData): Promise<string> {
+  try {
+    const log = await prisma.pushNotificationLog.create({
+      data: {
+        recipientEmail: data.recipientEmail,
+        recipientWpUserId: data.recipientWpUserId,
+        recipientFcmToken: data.recipientFcmToken ? data.recipientFcmToken.substring(0, 20) + '...' : undefined,
+        recipientCount: data.recipientCount || 1,
+        title: data.title,
+        body: data.body,
+        imageUrl: data.imageUrl,
+        dataPayload: data.dataPayload || undefined,
+        source: data.source,
+        type: data.type || 'general',
+        sourceId: data.sourceId,
+        status: 'pending',
+      },
+    });
+    return log.id;
+  } catch (error) {
+    console.error('Failed to create push notification log:', error);
+    return '';
+  }
+}
+
+/**
+ * Update an existing push notification log entry
+ */
+export async function updatePushNotificationLog(
+  logId: string,
+  update: {
+    status: PushLogStatus;
+    successCount?: number;
+    failureCount?: number;
+    errorMessage?: string;
+    errorCode?: string;
+    fcmMessageId?: string;
+  }
+): Promise<void> {
+  if (!logId) return;
+
+  try {
+    await prisma.pushNotificationLog.update({
+      where: { id: logId },
+      data: {
+        status: update.status,
+        successCount: update.successCount,
+        failureCount: update.failureCount,
+        errorMessage: update.errorMessage,
+        errorCode: update.errorCode,
+        fcmMessageId: update.fcmMessageId,
+        sentAt: update.status !== 'pending' ? new Date() : undefined,
+      },
+    });
+  } catch (error) {
+    console.error('Failed to update push notification log:', error);
+  }
 }
 
 // ============================================
@@ -270,14 +351,41 @@ export async function sendPushNotification(
   title: string,
   body: string,
   imageUrl?: string,
-  data?: Record<string, string>
-): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  data?: Record<string, string>,
+  logOptions?: { source?: NotificationSource; type?: NotificationType; sourceId?: string; recipientEmail?: string; recipientWpUserId?: string }
+): Promise<{ success: boolean; messageId?: string; error?: string; logId?: string }> {
+  // Create log entry if source is provided
+  let logId = '';
+  if (logOptions?.source) {
+    logId = await logPushNotification({
+      recipientEmail: logOptions.recipientEmail,
+      recipientWpUserId: logOptions.recipientWpUserId,
+      recipientFcmToken: fcmToken,
+      title,
+      body,
+      imageUrl,
+      dataPayload: data,
+      source: logOptions.source,
+      type: logOptions.type,
+      sourceId: logOptions.sourceId,
+    });
+  }
+
   try {
     const initialized = await initializeFCM();
     if (!initialized || !firebaseApp) {
+      if (logId) {
+        await updatePushNotificationLog(logId, {
+          status: 'failed',
+          failureCount: 1,
+          errorMessage: 'FCM not initialized. Please configure FCM settings and service account credentials.',
+          errorCode: 'FCM_NOT_INITIALIZED',
+        });
+      }
       return {
         success: false,
         error: 'FCM not initialized. Please configure FCM settings and service account credentials.',
+        logId,
       };
     }
 
@@ -334,9 +442,19 @@ export async function sendPushNotification(
     // Send via Firebase Admin SDK (uses FCM API v1 internally)
     const response = await admin.messaging(firebaseApp).send(message);
 
+    // Update log on success
+    if (logId) {
+      await updatePushNotificationLog(logId, {
+        status: 'sent',
+        successCount: 1,
+        fcmMessageId: response,
+      });
+    }
+
     return {
       success: true,
       messageId: response,
+      logId,
     };
   } catch (error: any) {
     console.error('Error sending push notification:', error);
@@ -349,15 +467,37 @@ export async function sendPushNotification(
         where: { fcmToken },
         data: { fcmToken: null },
       });
+
+      if (logId) {
+        await updatePushNotificationLog(logId, {
+          status: 'failed',
+          failureCount: 1,
+          errorMessage: 'Invalid FCM token',
+          errorCode: error.code,
+        });
+      }
+
       return {
         success: false,
         error: 'Invalid FCM token',
+        logId,
       };
+    }
+
+    // Update log on failure
+    if (logId) {
+      await updatePushNotificationLog(logId, {
+        status: 'failed',
+        failureCount: 1,
+        errorMessage: error.message || 'Failed to send push notification',
+        errorCode: error.code,
+      });
     }
 
     return {
       success: false,
       error: error.message || 'Failed to send push notification',
+      logId,
     };
   }
 }
@@ -372,23 +512,56 @@ export async function sendPushNotificationToMultiple(
   title: string,
   body: string,
   imageUrl?: string,
-  data?: Record<string, string>
-): Promise<{ successCount: number; failureCount: number; errors: string[] }> {
+  data?: Record<string, string>,
+  logOptions?: { source?: NotificationSource; type?: NotificationType; sourceId?: string }
+): Promise<{ successCount: number; failureCount: number; errors: string[]; logId?: string }> {
+  // Create log entry if source is provided
+  let logId = '';
+  if (logOptions?.source) {
+    logId = await logPushNotification({
+      recipientCount: fcmTokens.length,
+      title,
+      body,
+      imageUrl,
+      dataPayload: data,
+      source: logOptions.source,
+      type: logOptions.type,
+      sourceId: logOptions.sourceId,
+    });
+  }
+
   try {
     const initialized = await initializeFCM();
     if (!initialized || !firebaseApp) {
+      if (logId) {
+        await updatePushNotificationLog(logId, {
+          status: 'failed',
+          failureCount: fcmTokens.length,
+          errorMessage: 'FCM not initialized. Please configure FCM settings and service account credentials.',
+          errorCode: 'FCM_NOT_INITIALIZED',
+        });
+      }
       return {
         successCount: 0,
         failureCount: fcmTokens.length,
         errors: ['FCM not initialized. Please configure FCM settings and service account credentials.'],
+        logId,
       };
     }
 
     if (fcmTokens.length === 0) {
+      if (logId) {
+        await updatePushNotificationLog(logId, {
+          status: 'sent',
+          successCount: 0,
+          failureCount: 0,
+        });
+      }
       return {
         successCount: 0,
         failureCount: 0,
         errors: [],
+        logId,
       };
     }
 
@@ -513,17 +686,40 @@ export async function sendPushNotificationToMultiple(
       console.log(`FCM send summary: ${totalSuccess} succeeded`);
     }
 
+    // Update log with final results
+    if (logId) {
+      const status: PushLogStatus = totalFailure === 0 ? 'sent' : (totalSuccess === 0 ? 'failed' : 'partial');
+      await updatePushNotificationLog(logId, {
+        status,
+        successCount: totalSuccess,
+        failureCount: totalFailure,
+        errorMessage: allErrors.length > 0 ? allErrors.slice(0, 5).join('; ') : undefined,
+      });
+    }
+
     return {
       successCount: totalSuccess,
       failureCount: totalFailure,
       errors: allErrors,
+      logId,
     };
   } catch (error: any) {
     console.error('Error sending multicast push notification:', error);
+
+    if (logId) {
+      await updatePushNotificationLog(logId, {
+        status: 'failed',
+        failureCount: fcmTokens.length,
+        errorMessage: error.message || 'Failed to send push notifications',
+        errorCode: error.code,
+      });
+    }
+
     return {
       successCount: 0,
       failureCount: fcmTokens.length,
       errors: [error.message || error.code || 'Failed to send push notifications'],
+      logId,
     };
   }
 }
@@ -535,8 +731,9 @@ export async function sendPushNotificationToAll(
   title: string,
   body: string,
   imageUrl?: string,
-  data?: Record<string, string>
-): Promise<{ successCount: number; failureCount: number; totalUsers: number; error?: string; errors?: string[] }> {
+  data?: Record<string, string>,
+  logOptions?: { source?: NotificationSource; type?: NotificationType; sourceId?: string }
+): Promise<{ successCount: number; failureCount: number; totalUsers: number; error?: string; errors?: string[]; logId?: string }> {
   try {
     // Get all active users with FCM tokens
     const users = await prisma.appUser.findMany({
@@ -566,13 +763,14 @@ export async function sendPushNotificationToAll(
     }
 
     console.log(`Sending push notification to ${fcmTokens.length} users`);
-    const result = await sendPushNotificationToMultiple(fcmTokens, title, body, imageUrl, data);
+    const result = await sendPushNotificationToMultiple(fcmTokens, title, body, imageUrl, data, logOptions);
 
     return {
       successCount: result.successCount,
       failureCount: result.failureCount,
       totalUsers: fcmTokens.length,
       errors: result.errors,
+      logId: result.logId,
       error: result.failureCount > 0 && result.errors.length > 0 
         ? result.errors[0] 
         : undefined,
@@ -599,8 +797,9 @@ export async function sendPushNotificationToUser(
   title: string,
   body: string,
   imageUrl?: string,
-  data?: Record<string, string>
-): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  data?: Record<string, string>,
+  logOptions?: { source?: NotificationSource; type?: NotificationType; sourceId?: string }
+): Promise<{ success: boolean; messageId?: string; error?: string; logId?: string }> {
   try {
     console.log('Looking up user for push notification:', emailOrWpUserId);
 
@@ -619,6 +818,7 @@ export async function sendPushNotificationToUser(
       select: {
         id: true,
         email: true,
+        wpUserId: true,
         fcmToken: true,
       },
     });
@@ -638,7 +838,12 @@ export async function sendPushNotificationToUser(
       title,
       body,
       imageUrl,
-      data
+      data,
+      logOptions ? {
+        ...logOptions,
+        recipientEmail: user.email,
+        recipientWpUserId: user.wpUserId,
+      } : undefined
     );
   } catch (error: any) {
     console.error('Error sending push notification to user:', error);
