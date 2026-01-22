@@ -1,5 +1,7 @@
 import { prisma } from './prisma';
 import * as admin from 'firebase-admin';
+import * as fs from 'fs';
+import * as path from 'path';
 
 let fcmInitialized = false;
 let firebaseApp: admin.app.App | null = null;
@@ -164,15 +166,12 @@ export async function initializeFCM(): Promise<boolean> {
   }
 
   try {
-    // Get FCM settings from database
+    // Get FCM settings from database (optional - can use project_id from service account)
     const settings = await prisma.settings.findUnique({
       where: { id: 'settings' },
     });
 
-    if (!settings?.fcmProjectId) {
-      console.error('FCM project ID not configured in database settings');
-      return false;
-    }
+    const dbProjectId = settings?.fcmProjectId;
 
     // Initialize Firebase Admin if not already initialized
     if (!admin.apps.length) {
@@ -202,15 +201,16 @@ export async function initializeFCM(): Promise<boolean> {
             return false;
           }
 
-          // Check if project ID matches
-          if (serviceAccount.project_id !== settings.fcmProjectId) {
-            console.warn(`Service account project_id (${serviceAccount.project_id}) does not match database fcmProjectId (${settings.fcmProjectId})`);
+          // Check if project ID matches (if database setting exists)
+          const projectId = dbProjectId || serviceAccount.project_id;
+          if (dbProjectId && serviceAccount.project_id !== dbProjectId) {
+            console.warn(`Service account project_id (${serviceAccount.project_id}) does not match database fcmProjectId (${dbProjectId})`);
             console.warn('Using project_id from service account JSON instead');
           }
 
           firebaseApp = admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),
-            projectId: settings.fcmProjectId,
+            projectId: serviceAccount.project_id,
           });
           console.log('FCM initialized successfully using FIREBASE_SERVICE_ACCOUNT');
           console.log(`Project ID: ${serviceAccount.project_id}, Client Email: ${serviceAccount.client_email}`);
@@ -224,9 +224,13 @@ export async function initializeFCM(): Promise<boolean> {
         }
       } else if (credentialsPath) {
         try {
+          if (!dbProjectId) {
+            console.error('FCM project ID must be configured in database settings when using GOOGLE_APPLICATION_CREDENTIALS');
+            return false;
+          }
           firebaseApp = admin.initializeApp({
             credential: admin.credential.applicationDefault(),
-            projectId: settings.fcmProjectId,
+            projectId: dbProjectId,
           });
           console.log('FCM initialized successfully using GOOGLE_APPLICATION_CREDENTIALS');
         } catch (error: any) {
@@ -234,8 +238,60 @@ export async function initializeFCM(): Promise<boolean> {
           return false;
         }
       } else {
-        console.error('Firebase service account not configured. Set FIREBASE_SERVICE_ACCOUNT (JSON string) or GOOGLE_APPLICATION_CREDENTIALS (file path)');
-        return false;
+        // Try to load from local file /key/key-1.json as fallback
+        const localKeyPaths = [
+          path.join(process.cwd(), 'key', 'key-1.json'),
+          path.join(process.cwd(), 'key', 'firebase-key.json'),
+          path.join(process.cwd(), 'key', 'service-account.json'),
+        ];
+
+        let serviceAccount = null;
+        let loadedFromPath = '';
+
+        for (const keyPath of localKeyPaths) {
+          try {
+            if (fs.existsSync(keyPath)) {
+              const fileContent = fs.readFileSync(keyPath, 'utf8');
+              serviceAccount = JSON.parse(fileContent);
+              loadedFromPath = keyPath;
+              console.log(`Found service account file at: ${keyPath}`);
+              break;
+            }
+          } catch (e) {
+            console.warn(`Failed to read service account from ${keyPath}:`, e);
+          }
+        }
+
+        if (serviceAccount) {
+          try {
+            // Validate required fields
+            const missingFields = [];
+            if (!serviceAccount.project_id) missingFields.push('project_id');
+            if (!serviceAccount.private_key) missingFields.push('private_key');
+            if (!serviceAccount.client_email) missingFields.push('client_email');
+
+            if (missingFields.length > 0) {
+              console.error(`Service account file is missing required fields: ${missingFields.join(', ')}`);
+              return false;
+            }
+
+            firebaseApp = admin.initializeApp({
+              credential: admin.credential.cert(serviceAccount),
+              projectId: serviceAccount.project_id,
+            });
+            console.log(`FCM initialized successfully using local file: ${loadedFromPath}`);
+            console.log(`Project ID: ${serviceAccount.project_id}, Client Email: ${serviceAccount.client_email}`);
+          } catch (error: any) {
+            console.error('Failed to initialize FCM with local service account file:', error.message);
+            return false;
+          }
+        } else {
+          console.error('Firebase service account not configured. Options:');
+          console.error('1. Set FIREBASE_SERVICE_ACCOUNT env variable (JSON string)');
+          console.error('2. Set GOOGLE_APPLICATION_CREDENTIALS env variable (file path)');
+          console.error('3. Place service account JSON file at /key/key-1.json');
+          return false;
+        }
       }
     } else {
       firebaseApp = admin.app();
