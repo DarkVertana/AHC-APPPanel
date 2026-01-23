@@ -15,7 +15,7 @@ export const revalidate = 0;
  * - userId: User ID (wpUserId or email)
  * - userEmail: User email
  * - userName: User name (optional)
- * - weight: Weight in lbs (required)
+ * - weight: Weight value in lbs (required)
  * - date: Date in ISO format (optional, defaults to now)
  * 
  * Security:

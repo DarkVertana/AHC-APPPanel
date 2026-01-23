@@ -54,8 +54,6 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const {
       timezone,
-      weightUnit,
-      heightUnit,
       sessionTimeout,
       requireStrongPassword,
       enableTwoFactor,
@@ -84,8 +82,6 @@ export async function PUT(request: NextRequest) {
       where: { id: 'settings' },
       data: {
         timezone: timezone !== undefined ? timezone : settings.timezone,
-        weightUnit: weightUnit !== undefined ? weightUnit : settings.weightUnit,
-        heightUnit: heightUnit !== undefined ? heightUnit : settings.heightUnit,
         sessionTimeout: sessionTimeout !== undefined ? sessionTimeout : settings.sessionTimeout,
         requireStrongPassword: requireStrongPassword !== undefined ? requireStrongPassword : settings.requireStrongPassword,
         enableTwoFactor: enableTwoFactor !== undefined ? enableTwoFactor : settings.enableTwoFactor,

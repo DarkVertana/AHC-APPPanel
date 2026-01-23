@@ -55,12 +55,12 @@ export async function POST(request: NextRequest) {
       displayName,
       phone,
       age,
-      height,
-      feet,             // Height in feet (e.g., "5'10\"")
-      weight,           // Current weight (user_current_weight)
-      goal,             // Goal weight (user_goal_weight)
-      initialWeight,    // Initial weight (user_initial_weight)
-      weightSet         // Whether weight data has been set (user_weight_set)
+      height,           // Height in total inches
+      feet,             // Height in feet+inches format (e.g., "5'10\"")
+      weight,           // Current weight in lbs
+      goal,             // Goal weight in lbs
+      initialWeight,    // Initial weight in lbs
+      weightSet         // Whether weight data has been set
     } = body;
 
     // Validate required fields

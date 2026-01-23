@@ -189,11 +189,7 @@ export default function SettingsPage() {
     // General Settings
     adminEmail: session?.user?.email || '',
     timezone: 'America/New_York',
-    
-    // Display Units (for app system view only)
-    weightUnit: 'lbs',
-    heightUnit: 'inches',
-    
+
     // Security Settings
     sessionTimeout: 30,
     requireStrongPassword: true,
@@ -219,8 +215,6 @@ export default function SettingsPage() {
           setSettings(prev => ({
             adminEmail: session?.user?.email || prev.adminEmail,
             timezone: data.timezone || 'America/New_York',
-            weightUnit: data.weightUnit || 'lbs',
-            heightUnit: data.heightUnit || 'inches',
             sessionTimeout: data.sessionTimeout || 30,
             requireStrongPassword: data.requireStrongPassword ?? true,
             enableTwoFactor: data.enableTwoFactor ?? false,
@@ -405,8 +399,6 @@ export default function SettingsPage() {
       setSettings({
         adminEmail: 'admin@alternatehealthclub.com',
         timezone: 'America/New_York',
-        weightUnit: 'lbs',
-        heightUnit: 'inches',
         sessionTimeout: 30,
         requireStrongPassword: true,
         enableTwoFactor: false,
@@ -703,54 +695,6 @@ export default function SettingsPage() {
               </select>
             </div>
 
-            {/* Display Units Section */}
-            <div className="pt-6 border-t border-[#dfedfb]">
-              <h5 className="text-base font-semibold text-[#435970] mb-4">Display Units</h5>
-              <p className="text-xs text-[#7895b3] mb-4">Configure weight and height units for display in the app system view. These settings do not affect API responses.</p>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="weightUnit" className="block text-sm font-medium text-[#435970] mb-2">
-                    Weight Unit
-                  </label>
-                  <select
-                    id="weightUnit"
-                    value={settings.weightUnit}
-                    onChange={(e) => handleInputChange('weightUnit', e.target.value)}
-                    className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] bg-white"
-                  >
-                    <option value="lbs">Pounds (lbs)</option>
-                    <option value="kg">Kilograms (kg)</option>
-                    <option value="g">Grams (g)</option>
-                  </select>
-                  <p className="text-xs text-[#7895b3] mt-1">Unit for displaying weight in the app</p>
-                </div>
-
-                <div>
-                  <label htmlFor="heightUnit" className="block text-sm font-medium text-[#435970] mb-2">
-                    Height Unit
-                  </label>
-                  <select
-                    id="heightUnit"
-                    value={settings.heightUnit}
-                    onChange={(e) => handleInputChange('heightUnit', e.target.value)}
-                    className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] bg-white"
-                  >
-                    <option value="inches">Inches (in)</option>
-                    <option value="cm">Centimeters (cm)</option>
-                    <option value="m">Meters (m)</option>
-                    <option value="feet">Feet (ft)</option>
-                  </select>
-                  <p className="text-xs text-[#7895b3] mt-1">Unit for displaying height in the app</p>
-                </div>
-              </div>
-
-              <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-xs text-blue-800">
-                  <strong>Note:</strong> These unit settings only affect how data is displayed in the admin dashboard and app system view. API responses will continue to use the original units stored in the database.
-                </p>
-              </div>
-            </div>
           </div>
           </div>
         )}

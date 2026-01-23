@@ -52,10 +52,6 @@ model Settings {
   adminEmail String @default("admin@alternatehealthclub.com")
   timezone   String @default("America/New_York")
 
-  // Display Units (for app system view only, not affecting API)
-  weightUnit String @default("lbs") // Options: lbs, kg, g
-  heightUnit String @default("inches") // Options: inches, cm, m, feet
-
   // Security Settings
   sessionTimeout        Int     @default(30)
   requireStrongPassword Boolean @default(true)

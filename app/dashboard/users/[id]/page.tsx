@@ -67,7 +67,6 @@ export default function UserDetailsPage() {
   const [loadingMedicationLogs, setLoadingMedicationLogs] = useState(false);
   const [loadingWeightLogs, setLoadingWeightLogs] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [weightUnit] = useState('lbs');
   const [weightLogsPagination, setWeightLogsPagination] = useState({
     page: 1,
     limit: 10,
@@ -296,21 +295,20 @@ export default function UserDetailsPage() {
                 <div>
                   <p className="text-sm text-[#7895b3] mb-1">Height</p>
                   <p className="text-base font-medium text-[#435970]">
-                    {user.feet ? user.feet : user.height || 'N/A'}
-                    {user.feet && user.height && ` (${user.height})`}
+                    {user.feet || user.height || 'N/A'}
                   </p>
                 </div>
               )}
               <div>
                 <p className="text-sm text-[#7895b3] mb-1">Current Weight</p>
                 <p className="text-base font-medium text-[#435970]">
-                  {formatWeight(user.weight, weightUnit)}
+                  {formatWeight(user.weight)}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-[#7895b3] mb-1">Goal Weight</p>
                 <p className="text-base font-medium text-[#435970]">
-                  {formatWeight(user.goal, weightUnit)}
+                  {formatWeight(user.goal)}
                 </p>
               </div>
             </div>
@@ -374,7 +372,7 @@ export default function UserDetailsPage() {
               <span className="text-sm text-[#7895b3]">Weight Progress</span>
               <span className="text-sm font-medium text-[#435970]">
                 {user.weight !== 'N/A' && user.goal !== 'N/A'
-                  ? `${formatWeight(user.weight, weightUnit)} / ${formatWeight(user.goal, weightUnit)}`
+                  ? `${formatWeight(user.weight)} / ${formatWeight(user.goal)}`
                   : 'N/A'}
               </span>
             </div>
