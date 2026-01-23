@@ -12,6 +12,7 @@ type User = {
   status: string;
   lastLogin: string;
   weight: string;
+  initialWeight: string;
   goal: string;
   tasksToday: number;
   joinDate: string;
@@ -299,6 +300,12 @@ export default function UserDetailsPage() {
                   </p>
                 </div>
               )}
+              <div>
+                <p className="text-sm text-[#7895b3] mb-1">Starting Weight</p>
+                <p className="text-base font-medium text-[#435970]">
+                  {formatWeight(user.initialWeight)}
+                </p>
+              </div>
               <div>
                 <p className="text-sm text-[#7895b3] mb-1">Current Weight</p>
                 <p className="text-base font-medium text-[#435970]">
