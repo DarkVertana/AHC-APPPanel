@@ -152,6 +152,30 @@ export async function POST(request: NextRequest) {
 
     console.log('Notification:', { title, message, icon });
 
+    // Create webhook log FIRST to prevent race conditions with duplicate webhooks
+    let webhookLogId: string | null = null;
+    try {
+      const webhookLog = await prisma.webhookLog.create({
+        data: {
+          source: 'woocommerce',
+          event: 'subscription_status',
+          resourceId: String(subscriptionId),
+          status: subscriptionStatus,
+          customerEmail: customerEmail || null,
+          notificationTitle: title,
+          notificationBody: message,
+          pushSent: false,
+          pushSuccess: false,
+          pushError: null,
+          payload: body,
+        },
+      });
+      webhookLogId = webhookLog.id;
+      console.log('Webhook log created:', webhookLogId);
+    } catch (dbError) {
+      console.log('DB log creation failed - continuing without deduplication protection');
+    }
+
     // Send push notification
     let pushResult = { success: false, error: 'No customer email' } as { success: boolean; messageId?: string; error?: string };
 
@@ -178,25 +202,20 @@ export async function POST(request: NextRequest) {
       console.log('No customer email found in webhook payload');
     }
 
-    // Try to log to database
-    try {
-      await prisma.webhookLog.create({
-        data: {
-          source: 'woocommerce',
-          event: 'subscription_status',
-          resourceId: String(subscriptionId),
-          status: subscriptionStatus,
-          customerEmail: customerEmail || null,
-          notificationTitle: title,
-          notificationBody: message,
-          pushSent: !!customerEmail,
-          pushSuccess: pushResult.success,
-          pushError: pushResult.error || null,
-          payload: body,
-        },
-      });
-    } catch (dbError) {
-      console.log('DB log skipped');
+    // Update webhook log with push result
+    if (webhookLogId) {
+      try {
+        await prisma.webhookLog.update({
+          where: { id: webhookLogId },
+          data: {
+            pushSent: !!customerEmail,
+            pushSuccess: pushResult.success,
+            pushError: pushResult.error || null,
+          },
+        });
+      } catch (dbError) {
+        console.log('DB log update skipped');
+      }
     }
 
     console.log('=== SUBSCRIPTION WEBHOOK COMPLETE ===');
