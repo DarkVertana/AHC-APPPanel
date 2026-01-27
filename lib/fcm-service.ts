@@ -377,6 +377,31 @@ export function getSubscriptionStatusMessage(status: string, subNumber: string):
  * Send push notification to a single device using Firebase Admin SDK
  * (uses new FCM API v1 internally - no legacy API)
  */
+// In-memory deduplication cache (prevents duplicate sends within 30 seconds)
+const recentPushes = new Map<string, number>();
+const DEDUP_WINDOW_MS = 30 * 1000; // 30 seconds
+
+// Clean up old entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, timestamp] of recentPushes.entries()) {
+    if (now - timestamp > DEDUP_WINDOW_MS) {
+      recentPushes.delete(key);
+    }
+  }
+}, 60 * 1000); // Clean every minute
+
+/**
+ * Generate a deduplication key for a push notification
+ */
+function generateDedupKey(fcmToken: string, sourceId?: string, title?: string): string {
+  // Use sourceId if available (most reliable), otherwise use token + title hash
+  if (sourceId) {
+    return `${fcmToken.substring(0, 20)}_${sourceId}`;
+  }
+  return `${fcmToken.substring(0, 20)}_${title?.substring(0, 30) || 'notif'}`;
+}
+
 export async function sendPushNotification(
   fcmToken: string,
   title: string,
@@ -385,6 +410,44 @@ export async function sendPushNotification(
   data?: Record<string, string>,
   logOptions?: { source?: NotificationSource; type?: NotificationType; sourceId?: string; recipientEmail?: string; recipientWpUserId?: string }
 ): Promise<{ success: boolean; messageId?: string; error?: string; logId?: string }> {
+  // Generate deduplication key
+  const dedupKey = generateDedupKey(fcmToken, logOptions?.sourceId, title);
+
+  // Check in-memory deduplication cache
+  const lastSent = recentPushes.get(dedupKey);
+  if (lastSent && Date.now() - lastSent < DEDUP_WINDOW_MS) {
+    console.log(`Duplicate push blocked (in-memory cache): ${dedupKey}`);
+    return {
+      success: true,
+      error: 'Duplicate notification blocked',
+      logId: '',
+    };
+  }
+
+  // Also check database for recent sends to this token (belt and suspenders)
+  if (logOptions?.sourceId) {
+    const thirtySecondsAgo = new Date(Date.now() - DEDUP_WINDOW_MS);
+    const recentDbLog = await prisma.pushNotificationLog.findFirst({
+      where: {
+        sourceId: logOptions.sourceId,
+        recipientFcmToken: { startsWith: fcmToken.substring(0, 20) },
+        status: 'sent',
+        createdAt: { gte: thirtySecondsAgo },
+      },
+    });
+    if (recentDbLog) {
+      console.log(`Duplicate push blocked (database check): ${dedupKey}`);
+      return {
+        success: true,
+        error: 'Duplicate notification blocked',
+        logId: recentDbLog.id,
+      };
+    }
+  }
+
+  // Mark as sent in cache immediately (before async operations)
+  recentPushes.set(dedupKey, Date.now());
+
   // Create log entry if source is provided
   let logId = '';
   if (logOptions?.source) {
@@ -437,6 +500,12 @@ export async function sendPushNotification(
       }
     }
 
+    // Generate collapse key for deduplication at FCM level
+    // This prevents FCM from delivering multiple identical notifications
+    const collapseKey = logOptions?.sourceId
+      ? `notif_${logOptions.sourceId}`
+      : `notif_${Date.now()}`;
+
     // Build message payload for FCM API v1 (via Firebase Admin SDK)
     const message: admin.messaging.Message = {
       token: fcmToken,
@@ -445,20 +514,31 @@ export async function sendPushNotification(
         body,
         ...(validImageUrl && { imageUrl: validImageUrl }),
       },
-      data: data ? Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])) : {},
+      data: {
+        ...(data ? Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])) : {}),
+        // Add dedup info to data payload for client-side deduplication
+        _dedupKey: collapseKey,
+        _timestamp: String(Date.now()),
+      },
       android: {
         priority: 'high',
+        collapseKey, // Prevents duplicate delivery on Android
         notification: {
           channelId: 'default',
           sound: 'default',
           priority: 'high',
+          tag: collapseKey, // Additional Android deduplication
           ...(validImageUrl && { imageUrl: validImageUrl }),
         },
       },
       apns: {
+        headers: {
+          'apns-collapse-id': collapseKey, // Prevents duplicate delivery on iOS
+        },
         payload: {
           aps: {
             sound: 'default',
+            'thread-id': collapseKey, // Groups notifications on iOS
             ...(validImageUrl && { mutableContent: true }),
           },
         },
@@ -472,6 +552,7 @@ export async function sendPushNotification(
 
     // Send via Firebase Admin SDK (uses FCM API v1 internally)
     const response = await admin.messaging(firebaseApp).send(message);
+    console.log(`Push sent successfully: ${collapseKey} -> ${response}`);
 
     // Update log on success
     if (logId) {
@@ -617,6 +698,12 @@ export async function sendPushNotificationToMultiple(
     let totalFailure = 0;
     const allErrors: string[] = [];
     const invalidTokens: string[] = [];
+    const skippedDuplicates: string[] = [];
+
+    // Generate collapse key for deduplication at FCM level
+    const collapseKey = logOptions?.sourceId
+      ? `notif_${logOptions.sourceId}`
+      : `notif_batch_${Date.now()}`;
 
     // Process tokens in parallel with concurrency limit (50 concurrent requests)
     const concurrencyLimit = 50;
@@ -624,6 +711,16 @@ export async function sendPushNotificationToMultiple(
       const batch = fcmTokens.slice(i, i + concurrencyLimit);
 
       const promises = batch.map(async (token) => {
+        // Check in-memory deduplication cache
+        const dedupKey = generateDedupKey(token, logOptions?.sourceId, title);
+        const lastSent = recentPushes.get(dedupKey);
+        if (lastSent && Date.now() - lastSent < DEDUP_WINDOW_MS) {
+          skippedDuplicates.push(token.substring(0, 20));
+          return { success: true, token, skipped: true };
+        }
+
+        // Mark as sent in cache
+        recentPushes.set(dedupKey, Date.now());
 
         const message: admin.messaging.Message = {
           token,
@@ -632,20 +729,30 @@ export async function sendPushNotificationToMultiple(
             body,
             ...(validImageUrl && { imageUrl: validImageUrl }),
           },
-          data: data ? Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])) : {},
+          data: {
+            ...(data ? Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])) : {}),
+            _dedupKey: collapseKey,
+            _timestamp: String(Date.now()),
+          },
           android: {
             priority: 'high',
+            collapseKey, // Prevents duplicate delivery on Android
             notification: {
               channelId: 'default',
               sound: 'default',
               priority: 'high',
+              tag: collapseKey, // Additional Android deduplication
               ...(validImageUrl && { imageUrl: validImageUrl }),
             },
           },
           apns: {
+            headers: {
+              'apns-collapse-id': collapseKey, // Prevents duplicate delivery on iOS
+            },
             payload: {
               aps: {
                 sound: 'default',
+                'thread-id': collapseKey,
                 ...(validImageUrl && { mutableContent: true }),
               },
             },
@@ -710,11 +817,14 @@ export async function sendPushNotificationToMultiple(
     }
 
     // Log summary
+    if (skippedDuplicates.length > 0) {
+      console.log(`FCM deduplication: ${skippedDuplicates.length} duplicate(s) blocked`);
+    }
     if (totalFailure > 0) {
-      console.warn(`FCM send summary: ${totalSuccess} succeeded, ${totalFailure} failed`);
+      console.warn(`FCM send summary: ${totalSuccess} succeeded, ${totalFailure} failed, ${skippedDuplicates.length} duplicates blocked`);
       console.warn('Errors:', allErrors);
     } else if (totalSuccess > 0) {
-      console.log(`FCM send summary: ${totalSuccess} succeeded`);
+      console.log(`FCM send summary: ${totalSuccess} succeeded, ${skippedDuplicates.length} duplicates blocked`);
     }
 
     // Update log with final results
