@@ -1,0 +1,447 @@
+# Daily Check-In API Documentation
+
+This document describes the API endpoints for the daily check-in feature used by the mobile app.
+
+## Base URL
+
+All endpoints are relative to your API base URL (e.g., `https://your-domain.com`).
+
+## Authentication
+
+All endpoints require API key authentication. Include your API key in the request headers using one of these methods:
+
+```
+X-API-Key: ahc_live_sk_your_api_key_here
+```
+
+or
+
+```
+Authorization: Bearer ahc_live_sk_your_api_key_here
+```
+
+---
+
+## Endpoints
+
+### 1. Record Daily Check-In
+
+Records a daily check-in for a user. Each user can only check in once per day per button type.
+
+**Endpoint:** `POST /api/app-users/daily-checkin`
+
+#### Query Parameters (URL)
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `date` | string | No | Check-in date in `YYYY-MM-DD` format (default: today) |
+| `time` | string | No | Check-in time in `HH:MM` or `HH:MM:SS` format (default: current time) |
+
+#### Request Body (JSON)
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `wpUserId` | string | Yes* | WordPress user ID |
+| `email` | string | Yes* | User email address |
+| `buttonType` | string | No | Type of check-in button (default: `"default"`) |
+| `deviceInfo` | string | No | Device information for analytics |
+
+> *Either `wpUserId` or `email` must be provided to identify the user.
+
+#### Example Request
+
+**URL with date/time parameters:**
+```
+POST /api/app-users/daily-checkin?date=2024-01-15&time=08:30:00
+```
+
+**Request Body:**
+```json
+{
+  "wpUserId": "12345",
+  "email": "user@example.com",
+  "buttonType": "default",
+  "deviceInfo": "iPhone 14 Pro, iOS 17.2"
+}
+```
+
+#### Success Response (201 Created)
+
+```json
+{
+  "success": true,
+  "alreadyCheckedIn": false,
+  "message": "Check-in recorded successfully",
+  "checkIn": {
+    "id": "clx1abc123def456",
+    "date": "2024-01-15",
+    "buttonType": "default",
+    "createdAt": "2024-01-15T08:30:00.000Z"
+  },
+  "user": {
+    "email": "user@example.com",
+    "wpUserId": "12345"
+  }
+}
+```
+
+#### Already Checked In Response (200 OK)
+
+If the user has already checked in today for the specified button type:
+
+```json
+{
+  "success": false,
+  "alreadyCheckedIn": true,
+  "message": "You have already checked in today",
+  "checkIn": {
+    "id": "clx1abc123def456",
+    "date": "2024-01-15",
+    "buttonType": "default",
+    "createdAt": "2024-01-15T08:30:00.000Z"
+  },
+  "user": {
+    "email": "user@example.com",
+    "wpUserId": "12345"
+  }
+}
+```
+
+#### Error Responses
+
+| Status | Description |
+|--------|-------------|
+| 400 | Missing required fields (wpUserId or email) |
+| 400 | Invalid date format (must be YYYY-MM-DD) |
+| 400 | Invalid time format (must be HH:MM or HH:MM:SS) |
+| 401 | Invalid or missing API key |
+| 404 | User not found |
+| 500 | Server error |
+
+---
+
+### 2. Get Check-In Status
+
+Check if a user has checked in on a specific date (defaults to today) and optionally retrieve their check-in history with streak information.
+
+**Endpoint:** `GET /api/app-users/daily-checkin`
+
+#### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `wpUserId` | string | Yes* | WordPress user ID |
+| `email` | string | Yes* | User email address |
+| `date` | string | No | Date to check in `YYYY-MM-DD` format (default: today) |
+| `buttonType` | string | No | Button type to check (default: `"default"`) |
+| `history` | boolean | No | Set to `true` to include check-in history |
+| `days` | number | No | Number of days of history to return (default: `7`) |
+
+> *Either `wpUserId` or `email` must be provided.
+
+#### Example Requests
+
+**Check today's status:**
+```
+GET /api/app-users/daily-checkin?wpUserId=12345
+```
+
+**Check a specific date:**
+```
+GET /api/app-users/daily-checkin?wpUserId=12345&date=2024-01-10
+```
+
+**Get history from a specific date:**
+```
+GET /api/app-users/daily-checkin?wpUserId=12345&date=2024-01-15&history=true&days=30
+```
+
+#### Response (Without History)
+
+```json
+{
+  "success": true,
+  "date": "2024-01-15",
+  "today": "2024-01-15",
+  "isToday": true,
+  "checkedIn": true,
+  "buttonType": "default",
+  "checkIn": {
+    "id": "clx1abc123def456",
+    "date": "2024-01-15",
+    "buttonType": "default",
+    "createdAt": "2024-01-15T08:30:00.000Z"
+  },
+  "user": {
+    "email": "user@example.com",
+    "wpUserId": "12345"
+  }
+}
+```
+
+#### Response (With History)
+
+```json
+{
+  "success": true,
+  "date": "2024-01-15",
+  "today": "2024-01-15",
+  "isToday": true,
+  "checkedIn": true,
+  "buttonType": "default",
+  "checkIn": {
+    "id": "clx1abc123def456",
+    "date": "2024-01-15",
+    "buttonType": "default",
+    "createdAt": "2024-01-15T08:30:00.000Z"
+  },
+  "user": {
+    "email": "user@example.com",
+    "wpUserId": "12345"
+  },
+  "history": [
+    {
+      "id": "clx1abc123def456",
+      "date": "2024-01-15",
+      "buttonType": "default",
+      "createdAt": "2024-01-15T08:30:00.000Z"
+    },
+    {
+      "id": "clx1abc789ghi012",
+      "date": "2024-01-14",
+      "buttonType": "default",
+      "createdAt": "2024-01-14T09:15:00.000Z"
+    },
+    {
+      "id": "clx1abc345jkl678",
+      "date": "2024-01-13",
+      "buttonType": "default",
+      "createdAt": "2024-01-13T07:45:00.000Z"
+    }
+  ],
+  "streak": 3
+}
+```
+
+#### Error Responses
+
+| Status | Description |
+|--------|-------------|
+| 400 | Missing required fields (wpUserId or email) |
+| 400 | Invalid date format (must be YYYY-MM-DD) |
+| 401 | Invalid or missing API key |
+| 404 | User not found |
+| 500 | Server error |
+
+---
+
+## Streak Calculation
+
+The streak represents the number of consecutive days a user has checked in, counting backwards from today.
+
+- If the user checked in today, yesterday, and the day before, the streak is `3`
+- If the user missed a day, the streak resets from the most recent consecutive period
+- The streak is calculated for up to 60 days of history
+
+---
+
+## Button Types
+
+The `buttonType` parameter allows you to track different types of check-ins separately. Each button type maintains its own check-in status and streak.
+
+Common use cases:
+- `"default"` - Standard daily check-in
+- `"morning"` - Morning routine check-in
+- `"workout"` - Workout completion check-in
+
+Users can check in once per day per button type.
+
+---
+
+## Implementation Examples
+
+### iOS (Swift)
+
+```swift
+func performDailyCheckIn(
+    wpUserId: String,
+    date: String? = nil,  // Optional: YYYY-MM-DD format
+    time: String? = nil   // Optional: HH:MM:SS format
+) async throws -> CheckInResponse {
+    // Build URL with query parameters
+    var urlComponents = URLComponents(string: "\(baseURL)/api/app-users/daily-checkin")!
+    var queryItems: [URLQueryItem] = []
+
+    if let date = date {
+        queryItems.append(URLQueryItem(name: "date", value: date))
+    }
+    if let time = time {
+        queryItems.append(URLQueryItem(name: "time", value: time))
+    }
+
+    if !queryItems.isEmpty {
+        urlComponents.queryItems = queryItems
+    }
+
+    var request = URLRequest(url: urlComponents.url!)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+
+    let body: [String: Any] = [
+        "wpUserId": wpUserId,
+        "buttonType": "default",
+        "deviceInfo": UIDevice.current.model
+    ]
+    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+    let (data, _) = try await URLSession.shared.data(for: request)
+    return try JSONDecoder().decode(CheckInResponse.self, from: data)
+}
+
+// Usage examples:
+// Check in for today (current time):
+// try await performDailyCheckIn(wpUserId: "12345")
+
+// Check in for a specific date and time:
+// try await performDailyCheckIn(wpUserId: "12345", date: "2024-01-15", time: "08:30:00")
+```
+
+### Android (Kotlin)
+
+```kotlin
+suspend fun performDailyCheckIn(
+    wpUserId: String,
+    date: String? = null,  // Optional: YYYY-MM-DD format
+    time: String? = null   // Optional: HH:MM:SS format
+): CheckInResponse {
+    val client = OkHttpClient()
+
+    // Build URL with query parameters
+    val urlBuilder = "$baseUrl/api/app-users/daily-checkin".toHttpUrl().newBuilder()
+    date?.let { urlBuilder.addQueryParameter("date", it) }
+    time?.let { urlBuilder.addQueryParameter("time", it) }
+
+    val body = JSONObject().apply {
+        put("wpUserId", wpUserId)
+        put("buttonType", "default")
+        put("deviceInfo", Build.MODEL)
+    }
+
+    val request = Request.Builder()
+        .url(urlBuilder.build())
+        .post(body.toString().toRequestBody("application/json".toMediaType()))
+        .addHeader("X-API-Key", apiKey)
+        .build()
+
+    return withContext(Dispatchers.IO) {
+        client.newCall(request).execute().use { response ->
+            gson.fromJson(response.body?.string(), CheckInResponse::class.java)
+        }
+    }
+}
+
+// Usage examples:
+// Check in for today: performDailyCheckIn("12345")
+// Check in for specific date/time: performDailyCheckIn("12345", "2024-01-15", "08:30:00")
+```
+
+### React Native / JavaScript
+
+```javascript
+async function performDailyCheckIn(wpUserId, options = {}) {
+  const { date, time } = options;
+
+  // Build URL with query parameters
+  const params = new URLSearchParams();
+  if (date) params.append('date', date);
+  if (time) params.append('time', time);
+
+  const queryString = params.toString();
+  const url = `${BASE_URL}/api/app-users/daily-checkin${queryString ? '?' + queryString : ''}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': API_KEY,
+    },
+    body: JSON.stringify({
+      wpUserId,
+      buttonType: 'default',
+      deviceInfo: Platform.OS + ' ' + Platform.Version,
+    }),
+  });
+
+  return response.json();
+}
+
+// Usage examples:
+// Check in for today: await performDailyCheckIn('12345')
+// Check in for specific date/time: await performDailyCheckIn('12345', { date: '2024-01-15', time: '08:30:00' })
+
+async function getCheckInStatus(wpUserId, options = {}) {
+  const { date, includeHistory = false, days = 30 } = options;
+
+  const params = new URLSearchParams({
+    wpUserId,
+    history: includeHistory.toString(),
+    days: days.toString(),
+  });
+
+  if (date) params.append('date', date);
+
+  const response = await fetch(
+    `${BASE_URL}/api/app-users/daily-checkin?${params}`,
+    {
+      headers: {
+        'X-API-Key': API_KEY,
+      },
+    }
+  );
+
+  return response.json();
+}
+
+// Usage examples:
+// Get today's status: await getCheckInStatus('12345')
+// Get status for specific date: await getCheckInStatus('12345', { date: '2024-01-10' })
+// Get history from specific date: await getCheckInStatus('12345', { date: '2024-01-15', includeHistory: true })
+```
+
+---
+
+## Best Practices
+
+1. **Check status first**: Before showing the check-in button, call the GET endpoint to see if the user has already checked in today.
+
+2. **Handle duplicate check-ins gracefully**: If `alreadyCheckedIn` is `true`, show a friendly message instead of an error.
+
+3. **Cache the streak**: Store the streak locally and update it optimistically when the user checks in.
+
+4. **Include device info**: Sending device information helps with debugging and analytics.
+
+5. **Handle offline scenarios**: Queue check-in requests when offline and sync when connectivity is restored.
+
+---
+
+## Data Model Reference
+
+The check-in data is stored with the following structure:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique identifier (CUID format) |
+| `appUserId` | string | Reference to the app user |
+| `date` | string | Check-in date (YYYY-MM-DD format, UTC) |
+| `buttonType` | string | Type of check-in button |
+| `deviceInfo` | string | Optional device information |
+| `ipAddress` | string | Captured IP address (internal use) |
+| `createdAt` | datetime | Timestamp of check-in |
+
+---
+
+## Rate Limits
+
+- Standard API rate limits apply
+- The unique constraint prevents duplicate check-ins per user/day/buttonType combination

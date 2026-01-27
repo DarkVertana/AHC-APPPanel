@@ -10,9 +10,31 @@ function getTodayDate(): string {
 }
 
 /**
+ * Validate date format (YYYY-MM-DD)
+ */
+function isValidDate(dateStr: string): boolean {
+  const regex = /^\d{4}-\d{2}-\d{2}$/;
+  if (!regex.test(dateStr)) return false;
+  const date = new Date(dateStr);
+  return date instanceof Date && !isNaN(date.getTime());
+}
+
+/**
+ * Validate time format (HH:MM or HH:MM:SS)
+ */
+function isValidTime(timeStr: string): boolean {
+  const regex = /^([01]\d|2[0-3]):([0-5]\d)(:([0-5]\d))?$/;
+  return regex.test(timeStr);
+}
+
+/**
  * POST - Register a daily check-in for a user
  *
  * Only allows ONE check-in per user per day per button type.
+ *
+ * Query Parameters:
+ * - date (string, optional): Check-in date in YYYY-MM-DD format (default: today)
+ * - time (string, optional): Check-in time in HH:MM or HH:MM:SS format (default: current time)
  *
  * Request Body:
  * - wpUserId (string, required): WordPress user ID
@@ -43,6 +65,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Unauthorized. Valid API key required.' },
         { status: 401 }
+      );
+    }
+
+    // Get date and time from query parameters
+    const { searchParams } = new URL(request.url);
+    const dateParam = searchParams.get('date');
+    const timeParam = searchParams.get('time');
+
+    // Validate date parameter if provided
+    if (dateParam && !isValidDate(dateParam)) {
+      return NextResponse.json(
+        { error: 'Invalid date format. Use YYYY-MM-DD.' },
+        { status: 400 }
+      );
+    }
+
+    // Validate time parameter if provided
+    if (timeParam && !isValidTime(timeParam)) {
+      return NextResponse.json(
+        { error: 'Invalid time format. Use HH:MM or HH:MM:SS.' },
+        { status: 400 }
       );
     }
 
@@ -79,7 +122,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const todayDate = getTodayDate();
+    // Use provided date or default to today
+    const checkInDate = dateParam || getTodayDate();
+
+    // Build createdAt timestamp if time is provided
+    let createdAt: Date | undefined;
+    if (timeParam) {
+      // Combine date and time into a timestamp
+      const timeWithSeconds = timeParam.includes(':') && timeParam.split(':').length === 2
+        ? `${timeParam}:00`
+        : timeParam;
+      createdAt = new Date(`${checkInDate}T${timeWithSeconds}Z`);
+    }
 
     // Get client IP address
     const forwarded = request.headers.get('x-forwarded-for');
@@ -90,14 +144,15 @@ export async function POST(request: NextRequest) {
       const checkIn = await prisma.dailyCheckIn.create({
         data: {
           appUserId: user.id,
-          date: todayDate,
+          date: checkInDate,
           buttonType,
           deviceInfo: deviceInfo || undefined,
           ipAddress: ipAddress || undefined,
+          ...(createdAt && { createdAt }),
         },
       });
 
-      console.log(`Daily check-in recorded: user=${user.email}, date=${todayDate}, button=${buttonType}`);
+      console.log(`Daily check-in recorded: user=${user.email}, date=${checkInDate}, button=${buttonType}`);
 
       return NextResponse.json({
         success: true,
@@ -121,12 +176,12 @@ export async function POST(request: NextRequest) {
         const existingCheckIn = await prisma.dailyCheckIn.findFirst({
           where: {
             appUserId: user.id,
-            date: todayDate,
+            date: checkInDate,
             buttonType,
           },
         });
 
-        console.log(`Daily check-in already exists: user=${user.email}, date=${todayDate}, button=${buttonType}`);
+        console.log(`Daily check-in already exists: user=${user.email}, date=${checkInDate}, button=${buttonType}`);
 
         return NextResponse.json({
           success: false,
@@ -161,6 +216,7 @@ export async function POST(request: NextRequest) {
  * Query Parameters:
  * - wpUserId (string): WordPress user ID
  * - email (string): User email (alternative to wpUserId)
+ * - date (string, optional): Date to check in YYYY-MM-DD format (default: today)
  * - buttonType (string, optional): Type of button to check (default: "default")
  * - history (boolean, optional): If true, returns check-in history
  * - days (number, optional): Number of days of history to return (default: 7)
@@ -189,6 +245,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const wpUserId = searchParams.get('wpUserId');
     const email = searchParams.get('email');
+    const dateParam = searchParams.get('date');
     const buttonType = searchParams.get('buttonType') || 'default';
     const includeHistory = searchParams.get('history') === 'true';
     const historyDays = parseInt(searchParams.get('days') || '7');
@@ -196,6 +253,14 @@ export async function GET(request: NextRequest) {
     if (!wpUserId && !email) {
       return NextResponse.json(
         { error: 'wpUserId or email is required' },
+        { status: 400 }
+      );
+    }
+
+    // Validate date parameter if provided
+    if (dateParam && !isValidDate(dateParam)) {
+      return NextResponse.json(
+        { error: 'Invalid date format. Use YYYY-MM-DD.' },
         { status: 400 }
       );
     }
@@ -223,27 +288,32 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Use provided date or default to today
+    const checkDate = dateParam || getTodayDate();
     const todayDate = getTodayDate();
+    const isToday = checkDate === todayDate;
 
-    // Check today's check-in
-    const todayCheckIn = await prisma.dailyCheckIn.findFirst({
+    // Check the specified date's check-in
+    const dateCheckIn = await prisma.dailyCheckIn.findFirst({
       where: {
         appUserId: user.id,
-        date: todayDate,
+        date: checkDate,
         buttonType,
       },
     });
 
     const response: any = {
       success: true,
+      date: checkDate,
       today: todayDate,
-      checkedInToday: !!todayCheckIn,
+      isToday,
+      checkedIn: !!dateCheckIn,
       buttonType,
-      todayCheckIn: todayCheckIn ? {
-        id: todayCheckIn.id,
-        date: todayCheckIn.date,
-        buttonType: todayCheckIn.buttonType,
-        createdAt: todayCheckIn.createdAt.toISOString(),
+      checkIn: dateCheckIn ? {
+        id: dateCheckIn.id,
+        date: dateCheckIn.date,
+        buttonType: dateCheckIn.buttonType,
+        createdAt: dateCheckIn.createdAt.toISOString(),
       } : null,
       user: {
         email: user.email,
@@ -253,7 +323,8 @@ export async function GET(request: NextRequest) {
 
     // Include history if requested
     if (includeHistory) {
-      const startDate = new Date();
+      const baseDate = new Date(checkDate);
+      const startDate = new Date(baseDate);
       startDate.setDate(startDate.getDate() - historyDays);
       const startDateStr = startDate.toISOString().split('T')[0];
 
@@ -261,7 +332,7 @@ export async function GET(request: NextRequest) {
         where: {
           appUserId: user.id,
           buttonType,
-          date: { gte: startDateStr },
+          date: { gte: startDateStr, lte: checkDate },
         },
         orderBy: { date: 'desc' },
         select: {
@@ -279,13 +350,12 @@ export async function GET(request: NextRequest) {
         createdAt: h.createdAt.toISOString(),
       }));
 
-      // Calculate streak (consecutive days)
+      // Calculate streak (consecutive days from the specified date backwards)
       let streak = 0;
-      const today = new Date(todayDate);
       for (let i = 0; i < historyDays; i++) {
-        const checkDate = new Date(today);
-        checkDate.setDate(checkDate.getDate() - i);
-        const dateStr = checkDate.toISOString().split('T')[0];
+        const iterDate = new Date(baseDate);
+        iterDate.setDate(iterDate.getDate() - i);
+        const dateStr = iterDate.toISOString().split('T')[0];
         if (history.some((h: { date: string }) => h.date === dateStr)) {
           streak++;
         } else if (i > 0) {
