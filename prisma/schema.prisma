@@ -153,7 +153,8 @@ model AppUser {
   weightLogs     WeightLog[]
   medicationLogs MedicationLog[]
   notificationViews NotificationView[]
-  
+  dailyCheckIns  DailyCheckIn[]
+
   // Timestamps
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -394,4 +395,28 @@ model PushNotificationLog {
   @@index([createdAt])
   @@index([recipientEmail])
   @@map("push_notification_logs")
+}
+
+model DailyCheckIn {
+  id          String   @id @default(cuid())
+  appUserId   String   // Foreign key to AppUser
+  date        String   // Date in YYYY-MM-DD format for easy daily checking
+  buttonType  String   @default("default") // Type of button pressed (for multiple buttons)
+
+  // Metadata
+  deviceInfo  String?  // Optional device info
+  ipAddress   String?  // Optional IP address
+
+  // Relations
+  appUser     AppUser  @relation(fields: [appUserId], references: [id], onDelete: Cascade)
+
+  // Timestamps
+  createdAt   DateTime @default(now())
+
+  // Unique constraint: one check-in per user per day per button type
+  @@unique([appUserId, date, buttonType])
+  @@index([appUserId])
+  @@index([date])
+  @@index([buttonType])
+  @@map("daily_check_ins")
 }

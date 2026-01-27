@@ -30,18 +30,39 @@ type User = {
   woocommerceCustomerId?: number;
 };
 
-type MedicationLog = {
+type DailyCheckIn = {
   id: string;
-  medicineName: string;
-  dosage: string;
-  takenAt: string;
+  date: string;
+  buttonType: string;
+  time: string;
 };
 
-type MedicationWeek = {
+type DayData = {
+  date: string;
+  dayOfWeek: string;
+  checkIns: { id: string; buttonType: string; time: string }[];
+  hasCheckIn: boolean;
+};
+
+type WeekData = {
   week: number;
   startDate: string;
   endDate: string;
-  logs: MedicationLog[];
+  checkIns: DailyCheckIn[];
+  totalDays: number;
+};
+
+type MonthData = {
+  month: string;
+  monthName: string;
+  checkIns: DailyCheckIn[];
+  totalDays: number;
+};
+
+type CheckInStats = {
+  totalCheckIns: number;
+  currentStreak: number;
+  checkedInToday: boolean;
 };
 
 type WeightLog = {
@@ -62,10 +83,12 @@ export default function UserDetailsPage() {
   const userId = params?.id as string;
 
   const [user, setUser] = useState<User | null>(null);
-  const [medicationLogs, setMedicationLogs] = useState<MedicationWeek[]>([]);
+  const [checkInData, setCheckInData] = useState<DayData[] | WeekData[] | MonthData[]>([]);
+  const [checkInStats, setCheckInStats] = useState<CheckInStats | null>(null);
+  const [checkInPeriod, setCheckInPeriod] = useState<'days' | 'weeks' | 'months'>('days');
   const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingMedicationLogs, setLoadingMedicationLogs] = useState(false);
+  const [loadingCheckIns, setLoadingCheckIns] = useState(false);
   const [loadingWeightLogs, setLoadingWeightLogs] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [weightLogsPagination, setWeightLogsPagination] = useState({
@@ -100,26 +123,6 @@ export default function UserDetailsPage() {
         }
 
         setUser(foundUser);
-
-        // Fetch medication logs
-        setLoadingMedicationLogs(true);
-        try {
-          const medResponse = await fetch(
-            `/api/app-users/medication-log?email=${encodeURIComponent(foundUser.email)}`,
-            {
-              credentials: 'include',
-            }
-          );
-
-          if (medResponse.ok) {
-            const medData = await medResponse.json();
-            setMedicationLogs(medData.weeks || []);
-          }
-        } catch (medError) {
-          console.error('Error fetching medication logs:', medError);
-        } finally {
-          setLoadingMedicationLogs(false);
-        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred');
         console.error('Error fetching user details:', err);
@@ -132,6 +135,33 @@ export default function UserDetailsPage() {
       fetchUserDetails();
     }
   }, [userId]);
+
+  // Fetch daily check-ins for this user
+  useEffect(() => {
+    const fetchCheckIns = async () => {
+      if (!user) return;
+
+      try {
+        setLoadingCheckIns(true);
+        const response = await fetch(
+          `/api/app-users/${user.id}/daily-checkins?period=${checkInPeriod}`,
+          { credentials: 'include' }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          setCheckInData(data.data || []);
+          setCheckInStats(data.statistics || null);
+        }
+      } catch (error) {
+        console.error('Error fetching daily check-ins:', error);
+      } finally {
+        setLoadingCheckIns(false);
+      }
+    };
+
+    fetchCheckIns();
+  }, [user, checkInPeriod]);
 
   // Fetch weight logs for this user
   useEffect(() => {
@@ -393,81 +423,293 @@ export default function UserDetailsPage() {
         </div>
       </div>
 
-      {/* Medication Log Section */}
+      {/* Daily Check-In Tracker Section */}
       <div className="bg-white rounded-lg border border-[#dfedfb] p-6">
-        <h5 className="text-xl font-semibold text-[#435970] mb-6">Medication Log (Last 4 Weeks)</h5>
-        {loadingMedicationLogs ? (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div>
+            <h5 className="text-xl font-semibold text-[#435970]">Daily Check-In Tracker</h5>
+            <p className="text-sm text-[#7895b3] mt-1">Track medication adherence over time</p>
+          </div>
+
+          {/* Period Selector */}
+          <div className="flex bg-[#dfedfb]/30 rounded-lg p-1">
+            {(['days', 'weeks', 'months'] as const).map((period) => (
+              <button
+                key={period}
+                onClick={() => setCheckInPeriod(period)}
+                className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${
+                  checkInPeriod === period
+                    ? 'bg-[#435970] text-white shadow-sm'
+                    : 'text-[#7895b3] hover:text-[#435970]'
+                }`}
+              >
+                {period.charAt(0).toUpperCase() + period.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Statistics Cards */}
+        {checkInStats && (
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="bg-gradient-to-br from-[#435970] to-[#5a7a96] rounded-lg p-4 text-white">
+              <div className="flex items-center gap-2 mb-2">
+                <svg className="w-5 h-5 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
+                </svg>
+                <span className="text-xs font-medium opacity-80">Current Streak</span>
+              </div>
+              <p className="text-3xl font-bold">{checkInStats.currentStreak}</p>
+              <p className="text-xs opacity-70 mt-1">consecutive days</p>
+            </div>
+
+            <div className="bg-gradient-to-br from-[#7895b3] to-[#96afc9] rounded-lg p-4 text-white">
+              <div className="flex items-center gap-2 mb-2">
+                <svg className="w-5 h-5 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="text-xs font-medium opacity-80">Total Check-Ins</span>
+              </div>
+              <p className="text-3xl font-bold">{checkInStats.totalCheckIns}</p>
+              <p className="text-xs opacity-70 mt-1">in selected period</p>
+            </div>
+
+            <div className={`rounded-lg p-4 text-white ${
+              checkInStats.checkedInToday
+                ? 'bg-gradient-to-br from-green-500 to-green-600'
+                : 'bg-gradient-to-br from-orange-400 to-orange-500'
+            }`}>
+              <div className="flex items-center gap-2 mb-2">
+                <svg className="w-5 h-5 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span className="text-xs font-medium opacity-80">Today</span>
+              </div>
+              <p className="text-xl font-bold">
+                {checkInStats.checkedInToday ? 'Checked In' : 'Not Yet'}
+              </p>
+              <p className="text-xs opacity-70 mt-1">
+                {checkInStats.checkedInToday ? 'Great job!' : 'Pending check-in'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Check-In Data Display */}
+        {loadingCheckIns ? (
           <div className="flex items-center justify-center py-12">
             <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-[#435970]"></div>
-            <p className="ml-3 text-[#7895b3]">Loading medication logs...</p>
+            <p className="ml-3 text-[#7895b3]">Loading check-in data...</p>
           </div>
-        ) : medicationLogs.length === 0 ? (
-          <p className="text-sm text-[#7895b3] text-center py-8">
-            No medication logs found for the last 4 weeks.
-          </p>
-        ) : (
-          <div className="space-y-6">
-            {medicationLogs.map((week) => (
-              <div key={week.week} className="bg-[#dfedfb]/20 rounded-lg p-5 border border-[#dfedfb]">
-                <div className="flex items-center justify-between mb-4">
-                  <h6 className="text-base font-semibold text-[#435970]">
-                    Week {week.week} (
-                    {new Date(week.startDate).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                    })}{' '}
-                    -{' '}
-                    {new Date(week.endDate).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                    )
-                  </h6>
-                  <span className="text-xs text-[#7895b3] bg-[#dfedfb] px-3 py-1 rounded-full">
-                    {week.logs.length} {week.logs.length === 1 ? 'entry' : 'entries'}
-                  </span>
+        ) : checkInData.length === 0 ? (
+          <div className="text-center py-12">
+            <svg className="w-16 h-16 mx-auto text-[#dfedfb] mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+            </svg>
+            <p className="text-[#7895b3]">No check-in data found for this period.</p>
+            <p className="text-sm text-[#7895b3]/70 mt-1">Check-ins will appear here when the user logs their medication.</p>
+          </div>
+        ) : checkInPeriod === 'days' ? (
+          /* Calendar Grid View for Days */
+          <div className="space-y-4">
+            {/* Week Headers */}
+            <div className="grid grid-cols-7 gap-2 text-center">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+                <div key={day} className="text-xs font-medium text-[#7895b3] py-2">
+                  {day}
                 </div>
-                {week.logs.length === 0 ? (
-                  <p className="text-sm text-[#7895b3] italic text-center py-4">
-                    No medication logged this week
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {week.logs.map((log) => (
-                      <div
-                        key={log.id}
-                        className="bg-white rounded-lg p-4 border border-[#dfedfb] hover:shadow-md transition-shadow"
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <p className="text-base font-semibold text-[#435970] mb-1">
-                              {log.medicineName}
-                            </p>
-                            <p className="text-sm text-[#7895b3]">Dosage: {log.dosage}</p>
-                          </div>
-                          <div className="text-right ml-4">
-                            <p className="text-sm font-medium text-[#435970]">
-                              {new Date(log.takenAt).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric',
-                              })}
-                            </p>
-                            <p className="text-xs text-[#7895b3] mt-1">
-                              {new Date(log.takenAt).toLocaleTimeString([], {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </p>
-                          </div>
+              ))}
+            </div>
+
+            {/* Calendar Grid */}
+            <div className="grid grid-cols-7 gap-2">
+              {(checkInData as DayData[]).slice(0, 28).reverse().map((day, index) => {
+                const date = new Date(day.date);
+                const isToday = day.date === new Date().toISOString().split('T')[0];
+
+                return (
+                  <div
+                    key={day.date}
+                    className={`relative aspect-square rounded-lg border transition-all ${
+                      day.hasCheckIn
+                        ? 'bg-green-50 border-green-200 hover:border-green-400'
+                        : 'bg-[#dfedfb]/10 border-[#dfedfb] hover:border-[#7895b3]'
+                    } ${isToday ? 'ring-2 ring-[#435970] ring-offset-1' : ''}`}
+                    title={`${day.date}: ${day.hasCheckIn ? `${day.checkIns.length} check-in(s)` : 'No check-in'}`}
+                  >
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-1">
+                      <span className={`text-xs font-medium ${
+                        day.hasCheckIn ? 'text-green-700' : 'text-[#7895b3]'
+                      }`}>
+                        {date.getDate()}
+                      </span>
+                      {day.hasCheckIn && (
+                        <svg className="w-4 h-4 text-green-500 mt-1" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Recent Check-Ins List */}
+            <div className="mt-6 pt-6 border-t border-[#dfedfb]">
+              <h6 className="text-sm font-semibold text-[#435970] mb-4">Recent Check-Ins</h6>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {(checkInData as DayData[])
+                  .filter(d => d.hasCheckIn)
+                  .slice(0, 10)
+                  .map((day) => (
+                    <div
+                      key={day.date}
+                      className="flex items-center justify-between bg-[#dfedfb]/20 rounded-lg px-4 py-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                          <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-[#435970]">
+                            {new Date(day.date).toLocaleDateString('en-US', {
+                              weekday: 'long',
+                              month: 'short',
+                              day: 'numeric',
+                            })}
+                          </p>
+                          <p className="text-xs text-[#7895b3]">
+                            {day.checkIns.length} check-in{day.checkIns.length > 1 ? 's' : ''}
+                          </p>
                         </div>
                       </div>
-                    ))}
+                      <div className="text-right">
+                        <p className="text-xs text-[#7895b3]">
+                          {new Date(day.checkIns[0].time).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </div>
+        ) : checkInPeriod === 'weeks' ? (
+          /* Week View */
+          <div className="space-y-4">
+            {(checkInData as WeekData[]).map((week) => (
+              <div
+                key={week.week}
+                className="bg-[#dfedfb]/20 rounded-lg p-5 border border-[#dfedfb]"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h6 className="text-base font-semibold text-[#435970]">
+                      Week {week.week}
+                    </h6>
+                    <p className="text-sm text-[#7895b3]">
+                      {new Date(week.startDate).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                      })} - {new Date(week.endDate).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </p>
                   </div>
-                )}
+                  <div className="text-right">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-2xl font-bold ${
+                        week.totalDays >= 5 ? 'text-green-600' : week.totalDays >= 3 ? 'text-orange-500' : 'text-[#7895b3]'
+                      }`}>
+                        {week.totalDays}/7
+                      </span>
+                      <span className="text-sm text-[#7895b3]">days</span>
+                    </div>
+                    <div className="flex gap-1 mt-2">
+                      {Array.from({ length: 7 }, (_, i) => (
+                        <div
+                          key={i}
+                          className={`w-3 h-3 rounded-full ${
+                            i < week.totalDays ? 'bg-green-500' : 'bg-gray-200'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div
+                    className={`h-2.5 rounded-full transition-all ${
+                      week.totalDays >= 5 ? 'bg-green-500' : week.totalDays >= 3 ? 'bg-orange-400' : 'bg-gray-400'
+                    }`}
+                    style={{ width: `${(week.totalDays / 7) * 100}%` }}
+                  />
+                </div>
               </div>
             ))}
+          </div>
+        ) : (
+          /* Month View */
+          <div className="space-y-4">
+            {(checkInData as MonthData[]).map((month) => {
+              const daysInMonth = new Date(
+                parseInt(month.month.split('-')[0]),
+                parseInt(month.month.split('-')[1]),
+                0
+              ).getDate();
+              const percentage = Math.round((month.totalDays / daysInMonth) * 100);
+
+              return (
+                <div
+                  key={month.month}
+                  className="bg-[#dfedfb]/20 rounded-lg p-5 border border-[#dfedfb]"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h6 className="text-lg font-semibold text-[#435970]">
+                        {month.monthName}
+                      </h6>
+                      <p className="text-sm text-[#7895b3]">
+                        {month.checkIns.length} total check-ins
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <div className="flex items-baseline gap-1">
+                        <span className={`text-3xl font-bold ${
+                          percentage >= 70 ? 'text-green-600' : percentage >= 50 ? 'text-orange-500' : 'text-[#7895b3]'
+                        }`}>
+                          {month.totalDays}
+                        </span>
+                        <span className="text-lg text-[#7895b3]">/{daysInMonth}</span>
+                      </div>
+                      <p className="text-sm text-[#7895b3]">{percentage}% adherence</p>
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="w-full bg-gray-200 rounded-full h-3">
+                    <div
+                      className={`h-3 rounded-full transition-all ${
+                        percentage >= 70 ? 'bg-green-500' : percentage >= 50 ? 'bg-orange-400' : 'bg-gray-400'
+                      }`}
+                      style={{ width: `${percentage}%` }}
+                    />
+                  </div>
+
+                  <p className="text-xs text-[#7895b3] mt-2">
+                    {percentage >= 70 ? 'Excellent adherence!' : percentage >= 50 ? 'Good progress, keep it up!' : 'Room for improvement'}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
