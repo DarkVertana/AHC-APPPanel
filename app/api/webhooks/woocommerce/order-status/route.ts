@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createHmac } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import {
   sendPushNotificationToUser,
@@ -7,19 +6,29 @@ import {
   getOrderStatusMessage,
 } from '@/lib/fcm-service';
 
+// Force Node.js runtime for crypto support
+export const runtime = 'nodejs';
+
 /**
  * Verify WooCommerce webhook signature
  */
-function verifyWebhookSignature(body: string, signature: string | null, secret: string): boolean {
+async function verifyWebhookSignature(body: string, signature: string | null, secret: string): Promise<boolean> {
   if (!signature || !secret) {
     return false;
   }
 
   try {
-    const expectedSignature = createHmac('sha256', secret)
-      .update(body, 'utf8')
-      .digest('base64');
-
+    // Use Web Crypto API for broader compatibility
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
+    const expectedSignature = Buffer.from(signatureBuffer).toString('base64');
     return signature === expectedSignature;
   } catch (error) {
     console.error('Signature verification error:', error);
@@ -46,10 +55,10 @@ export async function POST(request: NextRequest) {
     const webhookSignature = request.headers.get('x-wc-webhook-signature');
     console.log('Headers:', { contentType, webhookTopic, webhookSource, hasSignature: !!webhookSignature });
 
-    // Verify webhook signature if secret is configured
+    // Verify webhook signature if secret is configured (async)
     const webhookSecret = process.env.WOOCOMMERCE_WEBHOOK_SECRET;
     if (webhookSecret && text && text.trim() && text.startsWith('{')) {
-      const isValid = verifyWebhookSignature(text, webhookSignature, webhookSecret);
+      const isValid = await verifyWebhookSignature(text, webhookSignature, webhookSecret);
       console.log('Webhook signature verification:', isValid ? 'VALID' : 'INVALID');
 
       if (!isValid && webhookSignature) {
