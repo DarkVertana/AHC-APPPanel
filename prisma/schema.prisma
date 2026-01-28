@@ -398,10 +398,11 @@ model PushNotificationLog {
 }
 
 model DailyCheckIn {
-  id          String   @id @default(cuid())
-  appUserId   String   // Foreign key to AppUser
-  date        String   // Date in YYYY-MM-DD format for easy daily checking
-  buttonType  String   @default("default") // Type of button pressed (for multiple buttons)
+  id             String   @id @default(cuid())
+  appUserId      String   // Foreign key to AppUser
+  date           String   // Date in YYYY-MM-DD format for easy daily checking
+  buttonType     String   @default("default") // Type of button pressed (for multiple buttons)
+  medicationName String?  // Optional medication name associated with the check-in
 
   // Metadata
   deviceInfo  String?  // Optional device info

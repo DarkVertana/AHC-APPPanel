@@ -1,6 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth-config';
 import { validateApiKey } from '@/lib/middleware';
 import { prisma } from '@/lib/prisma';
+
+type CheckInHistoryItem = {
+  id: string;
+  date: string;
+  buttonType: string;
+  medicationName: string | null;
+  createdAt: string;
+};
+
+type CheckInStatusResponse = {
+  success: boolean;
+  date: string;
+  today: string;
+  isToday: boolean;
+  checkedIn: boolean;
+  buttonType: string;
+  checkIn: {
+    id: string;
+    date: string;
+    buttonType: string;
+    medicationName: string | null;
+    createdAt: string;
+  } | null;
+  user: {
+    id: string;
+    email: string;
+    wpUserId: string;
+    name: string | null;
+  };
+  history?: CheckInHistoryItem[];
+  streak?: number;
+};
 
 /**
  * Get today's date in YYYY-MM-DD format (UTC)
@@ -28,9 +62,33 @@ function isValidTime(timeStr: string): boolean {
 }
 
 /**
+ * Authenticate request - supports both API key (mobile app) and session (admin dashboard)
+ * Returns: { type: 'apiKey' | 'session', isAdmin: boolean } or null if unauthorized
+ */
+async function authenticateRequest(request: NextRequest): Promise<{ type: 'apiKey' | 'session'; isAdmin: boolean } | null> {
+  // Try API key first (for mobile app)
+  try {
+    const apiKey = await validateApiKey(request);
+    if (apiKey) {
+      return { type: 'apiKey', isAdmin: false };
+    }
+  } catch {
+    // API key validation failed, try session
+  }
+
+  // Try session auth (for admin dashboard)
+  const session = await getServerSession(authOptions);
+  if (session) {
+    return { type: 'session', isAdmin: true };
+  }
+
+  return null;
+}
+
+/**
  * POST - Register a daily check-in for a user
  *
- * Only allows ONE check-in per user per day per button type.
+ * Authentication: API key required (mobile app only)
  *
  * Query Parameters:
  * - date (string, optional): Check-in date in YYYY-MM-DD format (default: today)
@@ -40,16 +98,12 @@ function isValidTime(timeStr: string): boolean {
  * - wpUserId (string, required): WordPress user ID
  * - email (string, optional): User email (alternative to wpUserId)
  * - buttonType (string, optional): Type of button pressed (default: "default")
+ * - medicationName (string, optional): Name of medication associated with check-in
  * - deviceInfo (string, optional): Device information
- *
- * Response:
- * - success: true if check-in was recorded
- * - alreadyCheckedIn: true if user already checked in today
- * - checkIn: the check-in record
  */
 export async function POST(request: NextRequest) {
   try {
-    // Validate API key
+    // Validate API key (POST is only for mobile app)
     let apiKey;
     try {
       apiKey = await validateApiKey(request);
@@ -90,7 +144,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { wpUserId, email, buttonType = 'default', deviceInfo } = body;
+    const { wpUserId, email, buttonType = 'default', deviceInfo, medicationName } = body;
 
     if (!wpUserId && !email) {
       return NextResponse.json(
@@ -128,7 +182,6 @@ export async function POST(request: NextRequest) {
     // Build createdAt timestamp if time is provided
     let createdAt: Date | undefined;
     if (timeParam) {
-      // Combine date and time into a timestamp
       const timeWithSeconds = timeParam.includes(':') && timeParam.split(':').length === 2
         ? `${timeParam}:00`
         : timeParam;
@@ -146,6 +199,7 @@ export async function POST(request: NextRequest) {
           appUserId: user.id,
           date: checkInDate,
           buttonType,
+          medicationName: medicationName || undefined,
           deviceInfo: deviceInfo || undefined,
           ipAddress: ipAddress || undefined,
           ...(createdAt && { createdAt }),
@@ -162,6 +216,7 @@ export async function POST(request: NextRequest) {
           id: checkIn.id,
           date: checkIn.date,
           buttonType: checkIn.buttonType,
+          medicationName: checkIn.medicationName,
           createdAt: checkIn.createdAt.toISOString(),
         },
         user: {
@@ -169,10 +224,10 @@ export async function POST(request: NextRequest) {
           wpUserId: user.wpUserId,
         },
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Check if it's a unique constraint violation (user already checked in today)
-      if (error.code === 'P2002') {
-        // Fetch the existing check-in
+      const prismaError = error as { code?: string };
+      if (prismaError.code === 'P2002') {
         const existingCheckIn = await prisma.dailyCheckIn.findFirst({
           where: {
             appUserId: user.id,
@@ -191,6 +246,7 @@ export async function POST(request: NextRequest) {
             id: existingCheckIn.id,
             date: existingCheckIn.date,
             buttonType: existingCheckIn.buttonType,
+            medicationName: existingCheckIn.medicationName,
             createdAt: existingCheckIn.createdAt.toISOString(),
           } : null,
           user: {
@@ -211,38 +267,34 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * GET - Check if user has checked in today / get check-in status
+ * GET - Get check-in status and history
+ *
+ * Authentication: API key (mobile app) OR session (admin dashboard)
  *
  * Query Parameters:
+ * - userId (string, admin only): Internal user ID to query
  * - wpUserId (string): WordPress user ID
  * - email (string): User email (alternative to wpUserId)
  * - date (string, optional): Date to check in YYYY-MM-DD format (default: today)
  * - buttonType (string, optional): Type of button to check (default: "default")
  * - history (boolean, optional): If true, returns check-in history
  * - days (number, optional): Number of days of history to return (default: 7)
+ * - view (string, optional): Calendar view mode - 'days' | 'weeks' | 'month' (admin only)
+ * - offset (number, optional): Pagination offset for calendar view (admin only)
  */
 export async function GET(request: NextRequest) {
   try {
-    // Validate API key
-    let apiKey;
-    try {
-      apiKey = await validateApiKey(request);
-    } catch (apiKeyError) {
-      console.error('API key validation error:', apiKeyError);
-      return NextResponse.json(
-        { error: 'API key validation failed' },
-        { status: 500 }
-      );
-    }
+    const auth = await authenticateRequest(request);
 
-    if (!apiKey) {
+    if (!auth) {
       return NextResponse.json(
-        { error: 'Unauthorized. Valid API key required.' },
+        { error: 'Unauthorized. Valid API key or admin session required.' },
         { status: 401 }
       );
     }
 
     const { searchParams } = new URL(request.url);
+    const userId = searchParams.get('userId'); // Admin only - internal user ID
     const wpUserId = searchParams.get('wpUserId');
     const email = searchParams.get('email');
     const dateParam = searchParams.get('date');
@@ -250,10 +302,31 @@ export async function GET(request: NextRequest) {
     const includeHistory = searchParams.get('history') === 'true';
     const historyDays = parseInt(searchParams.get('days') || '7');
 
-    if (!wpUserId && !email) {
+    // Admin-only calendar view parameters
+    const view = searchParams.get('view'); // 'days' | 'weeks' | 'month'
+    const offset = parseInt(searchParams.get('offset') || '0');
+
+    // Validate user identification
+    if (!userId && !wpUserId && !email) {
       return NextResponse.json(
-        { error: 'wpUserId or email is required' },
+        { error: 'userId, wpUserId, or email is required' },
         { status: 400 }
+      );
+    }
+
+    // userId parameter is admin-only
+    if (userId && !auth.isAdmin) {
+      return NextResponse.json(
+        { error: 'userId parameter requires admin access' },
+        { status: 403 }
+      );
+    }
+
+    // view parameter is admin-only
+    if (view && !auth.isAdmin) {
+      return NextResponse.json(
+        { error: 'view parameter requires admin access' },
+        { status: 403 }
       );
     }
 
@@ -267,17 +340,22 @@ export async function GET(request: NextRequest) {
 
     // Find the user
     let user;
-    if (wpUserId) {
+    if (userId) {
+      user = await prisma.appUser.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, wpUserId: true, name: true },
+      });
+    } else if (wpUserId) {
       user = await prisma.appUser.findUnique({
         where: { wpUserId },
-        select: { id: true, email: true, wpUserId: true },
+        select: { id: true, email: true, wpUserId: true, name: true },
       });
     }
 
     if (!user && email) {
       user = await prisma.appUser.findFirst({
         where: { email: email.toLowerCase().trim() },
-        select: { id: true, email: true, wpUserId: true },
+        select: { id: true, email: true, wpUserId: true, name: true },
       });
     }
 
@@ -288,12 +366,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Use provided date or default to today
+    // If view is specified (admin calendar view), return calendar-formatted data
+    if (view && auth.isAdmin) {
+      return getCalendarView(user, view, offset);
+    }
+
+    // Standard check-in status response (for mobile app or simple queries)
     const checkDate = dateParam || getTodayDate();
     const todayDate = getTodayDate();
     const isToday = checkDate === todayDate;
 
-    // Check the specified date's check-in
     const dateCheckIn = await prisma.dailyCheckIn.findFirst({
       where: {
         appUserId: user.id,
@@ -302,7 +384,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    const response: any = {
+    const response: CheckInStatusResponse = {
       success: true,
       date: checkDate,
       today: todayDate,
@@ -313,11 +395,14 @@ export async function GET(request: NextRequest) {
         id: dateCheckIn.id,
         date: dateCheckIn.date,
         buttonType: dateCheckIn.buttonType,
+        medicationName: dateCheckIn.medicationName,
         createdAt: dateCheckIn.createdAt.toISOString(),
       } : null,
       user: {
+        id: user.id,
         email: user.email,
         wpUserId: user.wpUserId,
+        name: user.name,
       },
     };
 
@@ -339,27 +424,29 @@ export async function GET(request: NextRequest) {
           id: true,
           date: true,
           buttonType: true,
+          medicationName: true,
           createdAt: true,
         },
       });
 
-      response.history = history.map((h: { id: string; date: string; buttonType: string; createdAt: Date }) => ({
+      response.history = history.map((h) => ({
         id: h.id,
         date: h.date,
         buttonType: h.buttonType,
+        medicationName: h.medicationName,
         createdAt: h.createdAt.toISOString(),
       }));
 
-      // Calculate streak (consecutive days from the specified date backwards)
+      // Calculate streak
       let streak = 0;
       for (let i = 0; i < historyDays; i++) {
         const iterDate = new Date(baseDate);
         iterDate.setDate(iterDate.getDate() - i);
         const dateStr = iterDate.toISOString().split('T')[0];
-        if (history.some((h: { date: string }) => h.date === dateStr)) {
+        if (history.some((h) => h.date === dateStr)) {
           streak++;
         } else if (i > 0) {
-          break; // Streak broken
+          break;
         }
       }
       response.streak = streak;
@@ -373,4 +460,129 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * Get calendar view data for admin dashboard
+ */
+async function getCalendarView(
+  user: { id: string; email: string; wpUserId: string; name: string | null },
+  view: string,
+  offset: number
+) {
+  const now = new Date();
+  let startDate: Date;
+  let endDate: Date;
+
+  if (view === 'month') {
+    const targetMonth = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    startDate = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), 1);
+    endDate = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0);
+  } else if (view === 'weeks') {
+    const currentSunday = new Date(now);
+    currentSunday.setDate(now.getDate() - now.getDay() - (offset * 28));
+    startDate = new Date(currentSunday);
+    endDate = new Date(currentSunday);
+    endDate.setDate(endDate.getDate() + 27);
+  } else {
+    // 'days' - 7 days (current week)
+    const currentSunday = new Date(now);
+    currentSunday.setDate(now.getDate() - now.getDay() - (offset * 7));
+    startDate = new Date(currentSunday);
+    endDate = new Date(currentSunday);
+    endDate.setDate(endDate.getDate() + 6);
+  }
+
+  const startDateStr = startDate.toISOString().split('T')[0];
+  const endDateStr = endDate.toISOString().split('T')[0];
+
+  // Fetch check-ins for the date range
+  const checkIns = await prisma.dailyCheckIn.findMany({
+    where: {
+      appUserId: user.id,
+      date: {
+        gte: startDateStr,
+        lte: endDateStr,
+      },
+    },
+    orderBy: { date: 'asc' },
+    select: {
+      id: true,
+      date: true,
+      buttonType: true,
+      medicationName: true,
+      createdAt: true,
+    },
+  });
+
+  // Create check-in map for quick lookup
+  const checkInMap = new Map<string, typeof checkIns[0]>();
+  checkIns.forEach((c) => {
+    checkInMap.set(c.date, c);
+  });
+
+  // Build days array
+  const days = [];
+  const current = new Date(startDate);
+  while (current <= endDate) {
+    const dateStr = current.toISOString().split('T')[0];
+    const checkIn = checkInMap.get(dateStr);
+
+    days.push({
+      date: dateStr,
+      hasCheckIn: !!checkIn,
+      time: checkIn?.createdAt.toISOString(),
+      medicationName: checkIn?.medicationName || null,
+    });
+
+    current.setDate(current.getDate() + 1);
+  }
+
+  // Calculate current streak
+  let streak = 0;
+  const today = now.toISOString().split('T')[0];
+
+  const streakCheckIns = await prisma.dailyCheckIn.findMany({
+    where: {
+      appUserId: user.id,
+      date: { lte: today },
+    },
+    orderBy: { date: 'desc' },
+    select: { date: true },
+    take: 60,
+  });
+
+  const streakDates = new Set(streakCheckIns.map((c: { date: string }) => c.date));
+
+  for (let i = 0; i < 60; i++) {
+    const checkDate = new Date(now);
+    checkDate.setDate(checkDate.getDate() - i);
+    const dateStr = checkDate.toISOString().split('T')[0];
+
+    if (streakDates.has(dateStr)) {
+      streak++;
+    } else if (i > 0) {
+      break;
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    user: {
+      id: user.id,
+      email: user.email,
+      wpUserId: user.wpUserId,
+      name: user.name,
+    },
+    view,
+    dateRange: {
+      start: startDateStr,
+      end: endDateStr,
+    },
+    statistics: {
+      currentStreak: streak,
+      totalInRange: checkIns.length,
+    },
+    data: days,
+  });
 }

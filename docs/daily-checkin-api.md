@@ -1,6 +1,6 @@
-# Daily Check-In API Documentation
+# App User API Documentation
 
-This document describes the API endpoints for the daily check-in feature used by the mobile app.
+This document describes the API endpoints for app user features used by the mobile app.
 
 ## Base URL
 
@@ -8,7 +8,11 @@ All endpoints are relative to your API base URL (e.g., `https://your-domain.com`
 
 ## Authentication
 
-All endpoints require API key authentication. Include your API key in the request headers using one of these methods:
+The API supports two authentication methods:
+
+### 1. API Key (Mobile App)
+
+Include your API key in the request headers:
 
 ```
 X-API-Key: ahc_live_sk_your_api_key_here
@@ -20,9 +24,13 @@ or
 Authorization: Bearer ahc_live_sk_your_api_key_here
 ```
 
+### 2. Session Auth (Admin Dashboard)
+
+Admin users authenticated via the dashboard session can also access the GET endpoint with additional parameters (`userId`, `view`, `offset`).
+
 ---
 
-## Endpoints
+## Daily Check-In Endpoints
 
 ### 1. Record Daily Check-In
 
@@ -44,6 +52,7 @@ Records a daily check-in for a user. Each user can only check in once per day pe
 | `wpUserId` | string | Yes* | WordPress user ID |
 | `email` | string | Yes* | User email address |
 | `buttonType` | string | No | Type of check-in button (default: `"default"`) |
+| `medicationName` | string | No | Name of medication associated with this check-in |
 | `deviceInfo` | string | No | Device information for analytics |
 
 > *Either `wpUserId` or `email` must be provided to identify the user.
@@ -61,6 +70,7 @@ POST /api/app-users/daily-checkin?date=2024-01-15&time=08:30:00
   "wpUserId": "12345",
   "email": "user@example.com",
   "buttonType": "default",
+  "medicationName": "Semaglutide",
   "deviceInfo": "iPhone 14 Pro, iOS 17.2"
 }
 ```
@@ -76,6 +86,7 @@ POST /api/app-users/daily-checkin?date=2024-01-15&time=08:30:00
     "id": "clx1abc123def456",
     "date": "2024-01-15",
     "buttonType": "default",
+    "medicationName": "Semaglutide",
     "createdAt": "2024-01-15T08:30:00.000Z"
   },
   "user": {
@@ -98,6 +109,7 @@ If the user has already checked in today for the specified button type:
     "id": "clx1abc123def456",
     "date": "2024-01-15",
     "buttonType": "default",
+    "medicationName": "Semaglutide",
     "createdAt": "2024-01-15T08:30:00.000Z"
   },
   "user": {
@@ -126,18 +138,23 @@ Check if a user has checked in on a specific date (defaults to today) and option
 
 **Endpoint:** `GET /api/app-users/daily-checkin`
 
+**Authentication:** API key (mobile app) OR admin session (dashboard)
+
 #### Query Parameters
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `wpUserId` | string | Yes* | WordPress user ID |
 | `email` | string | Yes* | User email address |
+| `userId` | string | No | Internal user ID (admin only) |
 | `date` | string | No | Date to check in `YYYY-MM-DD` format (default: today) |
 | `buttonType` | string | No | Button type to check (default: `"default"`) |
 | `history` | boolean | No | Set to `true` to include check-in history |
 | `days` | number | No | Number of days of history to return (default: `7`) |
+| `view` | string | No | Calendar view mode: `days`, `weeks`, or `month` (admin only) |
+| `offset` | number | No | Pagination offset for calendar view (admin only) |
 
-> *Either `wpUserId` or `email` must be provided.
+> *Either `wpUserId`, `email`, or `userId` (admin only) must be provided.
 
 #### Example Requests
 
@@ -156,6 +173,11 @@ GET /api/app-users/daily-checkin?wpUserId=12345&date=2024-01-10
 GET /api/app-users/daily-checkin?wpUserId=12345&date=2024-01-15&history=true&days=30
 ```
 
+**Admin: Get calendar view for a user:**
+```
+GET /api/app-users/daily-checkin?userId=clx1abc123&view=weeks&offset=0
+```
+
 #### Response (Without History)
 
 ```json
@@ -170,6 +192,7 @@ GET /api/app-users/daily-checkin?wpUserId=12345&date=2024-01-15&history=true&day
     "id": "clx1abc123def456",
     "date": "2024-01-15",
     "buttonType": "default",
+    "medicationName": "Semaglutide",
     "createdAt": "2024-01-15T08:30:00.000Z"
   },
   "user": {
@@ -193,6 +216,7 @@ GET /api/app-users/daily-checkin?wpUserId=12345&date=2024-01-15&history=true&day
     "id": "clx1abc123def456",
     "date": "2024-01-15",
     "buttonType": "default",
+    "medicationName": "Semaglutide",
     "createdAt": "2024-01-15T08:30:00.000Z"
   },
   "user": {
@@ -204,18 +228,21 @@ GET /api/app-users/daily-checkin?wpUserId=12345&date=2024-01-15&history=true&day
       "id": "clx1abc123def456",
       "date": "2024-01-15",
       "buttonType": "default",
+      "medicationName": "Semaglutide",
       "createdAt": "2024-01-15T08:30:00.000Z"
     },
     {
       "id": "clx1abc789ghi012",
       "date": "2024-01-14",
       "buttonType": "default",
+      "medicationName": "Semaglutide",
       "createdAt": "2024-01-14T09:15:00.000Z"
     },
     {
       "id": "clx1abc345jkl678",
       "date": "2024-01-13",
       "buttonType": "default",
+      "medicationName": "Semaglutide",
       "createdAt": "2024-01-13T07:45:00.000Z"
     }
   ],
@@ -232,6 +259,143 @@ GET /api/app-users/daily-checkin?wpUserId=12345&date=2024-01-15&history=true&day
 | 401 | Invalid or missing API key |
 | 404 | User not found |
 | 500 | Server error |
+
+---
+
+## Account Management Endpoints
+
+### 3. Delete User Account
+
+Permanently deletes a user account and all associated data. This is a destructive operation that cannot be undone.
+
+**Endpoint:** `DELETE /api/app-users/delete`
+
+#### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `wpUserId` | string | Yes* | WordPress user ID |
+| `email` | string | Yes* | User email address |
+
+> *Either `wpUserId` or `email` must be provided to identify the user.
+
+#### Example Request
+
+```
+DELETE /api/app-users/delete?wpUserId=12345
+```
+
+or
+
+```
+DELETE /api/app-users/delete?email=user@example.com
+```
+
+#### Success Response (200 OK)
+
+```json
+{
+  "success": true,
+  "message": "User and all associated data deleted successfully",
+  "deleted": {
+    "userId": "clx1abc123def456",
+    "wpUserId": "12345",
+    "email": "user@example.com",
+    "weightLogs": 45,
+    "medicationLogs": 30
+  }
+}
+```
+
+#### Error Responses
+
+| Status | Description |
+|--------|-------------|
+| 400 | Missing required fields (wpUserId or email) |
+| 401 | Invalid or missing API key |
+| 404 | User not found |
+| 500 | Server error |
+
+#### Data Deleted
+
+When a user account is deleted, the following data is permanently removed:
+
+| Data Type | Description |
+|-----------|-------------|
+| User Profile | Basic user information (email, wpUserId, name, etc.) |
+| Weight Logs | All weight tracking entries |
+| Medication Logs | All medication tracking entries |
+| Daily Check-Ins | All daily check-in records |
+| FCM Tokens | Push notification tokens |
+
+#### Implementation Examples
+
+**iOS (Swift):**
+```swift
+func deleteAccount(wpUserId: String) async throws -> DeleteResponse {
+    var urlComponents = URLComponents(string: "\(baseURL)/api/app-users/delete")!
+    urlComponents.queryItems = [URLQueryItem(name: "wpUserId", value: wpUserId)]
+
+    var request = URLRequest(url: urlComponents.url!)
+    request.httpMethod = "DELETE"
+    request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+
+    let (data, _) = try await URLSession.shared.data(for: request)
+    return try JSONDecoder().decode(DeleteResponse.self, from: data)
+}
+```
+
+**Android (Kotlin):**
+```kotlin
+suspend fun deleteAccount(wpUserId: String): DeleteResponse {
+    val client = OkHttpClient()
+
+    val url = "$baseUrl/api/app-users/delete".toHttpUrl().newBuilder()
+        .addQueryParameter("wpUserId", wpUserId)
+        .build()
+
+    val request = Request.Builder()
+        .url(url)
+        .delete()
+        .addHeader("X-API-Key", apiKey)
+        .build()
+
+    return withContext(Dispatchers.IO) {
+        client.newCall(request).execute().use { response ->
+            gson.fromJson(response.body?.string(), DeleteResponse::class.java)
+        }
+    }
+}
+```
+
+**React Native / JavaScript:**
+```javascript
+async function deleteAccount(wpUserId) {
+  const params = new URLSearchParams({ wpUserId });
+
+  const response = await fetch(
+    `${BASE_URL}/api/app-users/delete?${params}`,
+    {
+      method: 'DELETE',
+      headers: {
+        'X-API-Key': API_KEY,
+      },
+    }
+  );
+
+  return response.json();
+}
+```
+
+#### Best Practices
+
+1. **Confirm before deletion**: Always show a confirmation dialog to the user before calling this endpoint.
+
+2. **Require re-authentication**: Consider requiring the user to re-enter their password or use biometric authentication before account deletion.
+
+3. **Clear local data**: After successful deletion, clear all locally cached user data from the app.
+
+4. **Log out the user**: Redirect the user to the login/welcome screen after account deletion.
 
 ---
 
@@ -435,6 +599,7 @@ The check-in data is stored with the following structure:
 | `appUserId` | string | Reference to the app user |
 | `date` | string | Check-in date (YYYY-MM-DD format, UTC) |
 | `buttonType` | string | Type of check-in button |
+| `medicationName` | string | Optional medication name associated with check-in |
 | `deviceInfo` | string | Optional device information |
 | `ipAddress` | string | Captured IP address (internal use) |
 | `createdAt` | datetime | Timestamp of check-in |
