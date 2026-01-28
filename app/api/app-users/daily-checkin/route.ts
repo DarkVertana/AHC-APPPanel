@@ -4,11 +4,11 @@ import { authOptions } from '@/lib/auth-config';
 import { validateApiKey } from '@/lib/middleware';
 import { prisma } from '@/lib/prisma';
 
-type CheckInHistoryItem = {
+type CheckInRecord = {
   id: string;
   date: string;
   buttonType: string;
-  medicationName: string | null;
+  medicationName: string;
   createdAt: string;
 };
 
@@ -18,21 +18,15 @@ type CheckInStatusResponse = {
   today: string;
   isToday: boolean;
   checkedIn: boolean;
-  buttonType: string;
-  checkIn: {
-    id: string;
-    date: string;
-    buttonType: string;
-    medicationName: string | null;
-    createdAt: string;
-  } | null;
+  checkInCount: number;
+  checkIns: CheckInRecord[];
   user: {
     id: string;
     email: string;
     wpUserId: string;
     name: string | null;
   };
-  history?: CheckInHistoryItem[];
+  history?: CheckInRecord[];
   streak?: number;
 };
 
@@ -144,7 +138,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { wpUserId, email, buttonType = 'default', deviceInfo, medicationName } = body;
+    const { wpUserId, email, buttonType = 'default', deviceInfo, medicationName = 'default' } = body;
 
     if (!wpUserId && !email) {
       return NextResponse.json(
@@ -199,14 +193,14 @@ export async function POST(request: NextRequest) {
           appUserId: user.id,
           date: checkInDate,
           buttonType,
-          medicationName: medicationName || undefined,
+          medicationName,
           deviceInfo: deviceInfo || undefined,
           ipAddress: ipAddress || undefined,
           ...(createdAt && { createdAt }),
         },
       });
 
-      console.log(`Daily check-in recorded: user=${user.email}, date=${checkInDate}, button=${buttonType}`);
+      console.log(`Daily check-in recorded: user=${user.email}, date=${checkInDate}, medication=${medicationName}`);
 
       return NextResponse.json({
         success: true,
@@ -225,18 +219,18 @@ export async function POST(request: NextRequest) {
         },
       });
     } catch (error: unknown) {
-      // Check if it's a unique constraint violation (user already checked in today)
+      // Check if it's a unique constraint violation (medication already checked in for this date)
       const prismaError = error as { code?: string };
       if (prismaError.code === 'P2002') {
         const existingCheckIn = await prisma.dailyCheckIn.findFirst({
           where: {
             appUserId: user.id,
             date: checkInDate,
-            buttonType,
+            medicationName,
           },
         });
 
-        console.log(`Daily check-in already exists: user=${user.email}, date=${checkInDate}, button=${buttonType}`);
+        console.log(`Daily check-in already exists: user=${user.email}, date=${checkInDate}, medication=${medicationName}`);
 
         return NextResponse.json({
           success: false,
@@ -298,7 +292,6 @@ export async function GET(request: NextRequest) {
     const wpUserId = searchParams.get('wpUserId');
     const email = searchParams.get('email');
     const dateParam = searchParams.get('date');
-    const buttonType = searchParams.get('buttonType') || 'default';
     const includeHistory = searchParams.get('history') === 'true';
     const historyDays = parseInt(searchParams.get('days') || '7');
 
@@ -376,11 +369,19 @@ export async function GET(request: NextRequest) {
     const todayDate = getTodayDate();
     const isToday = checkDate === todayDate;
 
-    const dateCheckIn = await prisma.dailyCheckIn.findFirst({
+    // Get all check-ins for this date (multiple medications)
+    const dateCheckIns = await prisma.dailyCheckIn.findMany({
       where: {
         appUserId: user.id,
         date: checkDate,
-        buttonType,
+      },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        date: true,
+        buttonType: true,
+        medicationName: true,
+        createdAt: true,
       },
     });
 
@@ -389,15 +390,15 @@ export async function GET(request: NextRequest) {
       date: checkDate,
       today: todayDate,
       isToday,
-      checkedIn: !!dateCheckIn,
-      buttonType,
-      checkIn: dateCheckIn ? {
-        id: dateCheckIn.id,
-        date: dateCheckIn.date,
-        buttonType: dateCheckIn.buttonType,
-        medicationName: dateCheckIn.medicationName,
-        createdAt: dateCheckIn.createdAt.toISOString(),
-      } : null,
+      checkedIn: dateCheckIns.length > 0,
+      checkInCount: dateCheckIns.length,
+      checkIns: dateCheckIns.map((c) => ({
+        id: c.id,
+        date: c.date,
+        buttonType: c.buttonType,
+        medicationName: c.medicationName,
+        createdAt: c.createdAt.toISOString(),
+      })),
       user: {
         id: user.id,
         email: user.email,
@@ -416,10 +417,9 @@ export async function GET(request: NextRequest) {
       const history = await prisma.dailyCheckIn.findMany({
         where: {
           appUserId: user.id,
-          buttonType,
           date: { gte: startDateStr, lte: checkDate },
         },
-        orderBy: { date: 'desc' },
+        orderBy: [{ date: 'desc' }, { createdAt: 'asc' }],
         select: {
           id: true,
           date: true,
@@ -515,24 +515,30 @@ async function getCalendarView(
     },
   });
 
-  // Create check-in map for quick lookup
-  const checkInMap = new Map<string, typeof checkIns[0]>();
+  // Group check-ins by date (multiple medications per date)
+  const checkInsByDate = new Map<string, typeof checkIns>();
   checkIns.forEach((c) => {
-    checkInMap.set(c.date, c);
+    const existing = checkInsByDate.get(c.date) || [];
+    existing.push(c);
+    checkInsByDate.set(c.date, existing);
   });
 
-  // Build days array
+  // Build days array with all medications per date
   const days = [];
   const current = new Date(startDate);
   while (current <= endDate) {
     const dateStr = current.toISOString().split('T')[0];
-    const checkIn = checkInMap.get(dateStr);
+    const dayCheckIns = checkInsByDate.get(dateStr) || [];
 
     days.push({
       date: dateStr,
-      hasCheckIn: !!checkIn,
-      time: checkIn?.createdAt.toISOString(),
-      medicationName: checkIn?.medicationName || null,
+      hasCheckIn: dayCheckIns.length > 0,
+      checkInCount: dayCheckIns.length,
+      medications: dayCheckIns.map((c) => ({
+        id: c.id,
+        medicationName: c.medicationName,
+        time: c.createdAt.toISOString(),
+      })),
     });
 
     current.setDate(current.getDate() + 1);

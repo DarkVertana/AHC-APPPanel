@@ -52,7 +52,7 @@ Records a daily check-in for a user. Each user can only check in once per day pe
 | `wpUserId` | string | Yes* | WordPress user ID |
 | `email` | string | Yes* | User email address |
 | `buttonType` | string | No | Type of check-in button (default: `"default"`) |
-| `medicationName` | string | No | Name of medication associated with this check-in |
+| `medicationName` | string | No | Name of medication (default: `"default"`). Multiple medications can be logged per day. |
 | `deviceInfo` | string | No | Device information for analytics |
 
 > *Either `wpUserId` or `email` must be provided to identify the user.
@@ -98,7 +98,7 @@ POST /api/app-users/daily-checkin?date=2024-01-15&time=08:30:00
 
 #### Already Checked In Response (200 OK)
 
-If the user has already checked in today for the specified button type:
+If the user has already checked in this medication for the specified date:
 
 ```json
 {
@@ -118,6 +118,8 @@ If the user has already checked in today for the specified button type:
   }
 }
 ```
+
+> Note: Users can check in multiple different medications per day. The duplicate check is per medication name per date.
 
 #### Error Responses
 
@@ -180,6 +182,8 @@ GET /api/app-users/daily-checkin?userId=clx1abc123&view=weeks&offset=0
 
 #### Response (Without History)
 
+Returns all medications checked in for the specified date.
+
 ```json
 {
   "success": true,
@@ -187,17 +191,28 @@ GET /api/app-users/daily-checkin?userId=clx1abc123&view=weeks&offset=0
   "today": "2024-01-15",
   "isToday": true,
   "checkedIn": true,
-  "buttonType": "default",
-  "checkIn": {
-    "id": "clx1abc123def456",
-    "date": "2024-01-15",
-    "buttonType": "default",
-    "medicationName": "Semaglutide",
-    "createdAt": "2024-01-15T08:30:00.000Z"
-  },
+  "checkInCount": 2,
+  "checkIns": [
+    {
+      "id": "clx1abc123def456",
+      "date": "2024-01-15",
+      "buttonType": "default",
+      "medicationName": "Semaglutide",
+      "createdAt": "2024-01-15T08:30:00.000Z"
+    },
+    {
+      "id": "clx1abc789ghi012",
+      "date": "2024-01-15",
+      "buttonType": "default",
+      "medicationName": "Tirzepatide",
+      "createdAt": "2024-01-15T09:00:00.000Z"
+    }
+  ],
   "user": {
+    "id": "clx1user123",
     "email": "user@example.com",
-    "wpUserId": "12345"
+    "wpUserId": "12345",
+    "name": "John Doe"
   }
 }
 ```
@@ -211,17 +226,28 @@ GET /api/app-users/daily-checkin?userId=clx1abc123&view=weeks&offset=0
   "today": "2024-01-15",
   "isToday": true,
   "checkedIn": true,
-  "buttonType": "default",
-  "checkIn": {
-    "id": "clx1abc123def456",
-    "date": "2024-01-15",
-    "buttonType": "default",
-    "medicationName": "Semaglutide",
-    "createdAt": "2024-01-15T08:30:00.000Z"
-  },
+  "checkInCount": 2,
+  "checkIns": [
+    {
+      "id": "clx1abc123def456",
+      "date": "2024-01-15",
+      "buttonType": "default",
+      "medicationName": "Semaglutide",
+      "createdAt": "2024-01-15T08:30:00.000Z"
+    },
+    {
+      "id": "clx1abc789ghi012",
+      "date": "2024-01-15",
+      "buttonType": "default",
+      "medicationName": "Tirzepatide",
+      "createdAt": "2024-01-15T09:00:00.000Z"
+    }
+  ],
   "user": {
+    "id": "clx1user123",
     "email": "user@example.com",
-    "wpUserId": "12345"
+    "wpUserId": "12345",
+    "name": "John Doe"
   },
   "history": [
     {
@@ -233,20 +259,20 @@ GET /api/app-users/daily-checkin?userId=clx1abc123&view=weeks&offset=0
     },
     {
       "id": "clx1abc789ghi012",
+      "date": "2024-01-15",
+      "buttonType": "default",
+      "medicationName": "Tirzepatide",
+      "createdAt": "2024-01-15T09:00:00.000Z"
+    },
+    {
+      "id": "clx1abc345jkl678",
       "date": "2024-01-14",
       "buttonType": "default",
       "medicationName": "Semaglutide",
       "createdAt": "2024-01-14T09:15:00.000Z"
-    },
-    {
-      "id": "clx1abc345jkl678",
-      "date": "2024-01-13",
-      "buttonType": "default",
-      "medicationName": "Semaglutide",
-      "createdAt": "2024-01-13T07:45:00.000Z"
     }
   ],
-  "streak": 3
+  "streak": 2
 }
 ```
 

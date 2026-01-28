@@ -30,11 +30,17 @@ type User = {
   woocommerceCustomerId?: number;
 };
 
+type MedicationEntry = {
+  id: string;
+  medicationName: string;
+  time: string;
+};
+
 type CheckInDay = {
   date: string;
   hasCheckIn: boolean;
-  time?: string;
-  medicationName?: string | null;
+  checkInCount: number;
+  medications: MedicationEntry[];
 };
 
 type WeightLog = {
@@ -524,16 +530,18 @@ export default function UserDetailsPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="text-right flex flex-col items-end gap-0.5">
-                    {day.hasCheckIn && day.medicationName && (
-                      <span className="text-xs text-[#435970] font-medium bg-[#dfedfb] px-2 py-0.5 rounded">
-                        {day.medicationName}
-                      </span>
-                    )}
-                    {day.hasCheckIn && day.time ? (
-                      <span className="text-xs text-green-600 font-medium">
-                        {new Date(day.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                  <div className="text-right flex flex-col items-end gap-1">
+                    {day.hasCheckIn && day.medications.length > 0 ? (
+                      day.medications.map((med) => (
+                        <div key={med.id} className="flex items-center gap-2">
+                          <span className="text-xs text-[#435970] font-medium bg-[#dfedfb] px-2 py-0.5 rounded">
+                            {med.medicationName === 'default' ? 'Check-in' : med.medicationName}
+                          </span>
+                          <span className="text-xs text-green-600 font-medium">
+                            {new Date(med.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      ))
                     ) : (
                       <span className="text-xs text-[#7895b3]">-</span>
                     )}

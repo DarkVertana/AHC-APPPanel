@@ -402,7 +402,7 @@ model DailyCheckIn {
   appUserId      String   // Foreign key to AppUser
   date           String   // Date in YYYY-MM-DD format for easy daily checking
   buttonType     String   @default("default") // Type of button pressed (for multiple buttons)
-  medicationName String?  // Optional medication name associated with the check-in
+  medicationName String   @default("default") // Medication name for the check-in
 
   // Metadata
   deviceInfo  String?  // Optional device info
@@ -414,10 +414,10 @@ model DailyCheckIn {
   // Timestamps
   createdAt   DateTime @default(now())
 
-  // Unique constraint: one check-in per user per day per button type
-  @@unique([appUserId, date, buttonType])
+  // Unique constraint: one check-in per user per day per medication
+  @@unique([appUserId, date, medicationName])
   @@index([appUserId])
   @@index([date])
-  @@index([buttonType])
+  @@index([medicationName])
   @@map("daily_check_ins")
 }
