@@ -534,11 +534,14 @@ export async function sendPushNotification(
       apns: {
         headers: {
           'apns-collapse-id': collapseKey, // Prevents duplicate delivery on iOS
+          'apns-priority': '10', // High priority for immediate delivery
+          'apns-push-type': 'alert', // Alert type notification
         },
         payload: {
           aps: {
             sound: 'default',
             'thread-id': collapseKey, // Groups notifications on iOS
+            'content-available': 1, // Enable background processing
             ...(validImageUrl && { mutableContent: true }),
           },
         },
@@ -748,11 +751,14 @@ export async function sendPushNotificationToMultiple(
           apns: {
             headers: {
               'apns-collapse-id': collapseKey, // Prevents duplicate delivery on iOS
+              'apns-priority': '10', // High priority for immediate delivery
+              'apns-push-type': 'alert', // Alert type notification
             },
             payload: {
               aps: {
                 sound: 'default',
                 'thread-id': collapseKey,
+                'content-available': 1, // Enable background processing
                 ...(validImageUrl && { mutableContent: true }),
               },
             },
