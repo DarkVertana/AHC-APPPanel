@@ -609,6 +609,153 @@ export async function GET(request: NextRequest) {
 }
 
 /**
+ * DELETE - Delete a daily check-in record
+ *
+ * Authentication: API key required (mobile app only)
+ *
+ * Query Parameters:
+ * - wpUserId (string, required*): WordPress user ID
+ * - email (string, required*): User email (alternative to wpUserId)
+ * - date (string, required): Check-in date in YYYY-MM-DD format
+ * - buttonType (string, optional): Type of button (default: "default")
+ * - medicationName (string, optional): Name of medication (default: "default")
+ *
+ * *Either wpUserId or email must be provided
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    // Validate API key (DELETE is only for mobile app)
+    let apiKey;
+    try {
+      apiKey = await validateApiKey(request);
+    } catch (apiKeyError) {
+      console.error('API key validation error:', apiKeyError);
+      return NextResponse.json(
+        { error: 'API key validation failed' },
+        { status: 500 }
+      );
+    }
+
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: 'Unauthorized. Valid API key required.' },
+        { status: 401 }
+      );
+    }
+
+    const { searchParams } = new URL(request.url);
+    const wpUserId = searchParams.get('wpUserId');
+    const email = searchParams.get('email');
+    const dateParam = searchParams.get('date');
+    const buttonType = searchParams.get('buttonType') || 'default';
+    const medicationName = searchParams.get('medicationName') || 'default';
+
+    // Validate required parameters
+    if (!wpUserId && !email) {
+      return NextResponse.json(
+        { error: 'wpUserId or email is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!dateParam) {
+      return NextResponse.json(
+        { error: 'date is required' },
+        { status: 400 }
+      );
+    }
+
+    // Validate date format
+    if (!isValidDate(dateParam)) {
+      return NextResponse.json(
+        { error: 'Invalid date format. Use YYYY-MM-DD.' },
+        { status: 400 }
+      );
+    }
+
+    // Find the user
+    let user;
+    if (wpUserId) {
+      user = await prisma.appUser.findUnique({
+        where: { wpUserId },
+        select: { id: true, email: true, wpUserId: true },
+      });
+    }
+
+    if (!user && email) {
+      user = await prisma.appUser.findFirst({
+        where: { email: email.toLowerCase().trim() },
+        select: { id: true, email: true, wpUserId: true },
+      });
+    }
+
+    if (!user) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
+
+    // Find the check-in record
+    const checkIn = await prisma.dailyCheckIn.findFirst({
+      where: {
+        appUserId: user.id,
+        date: dateParam,
+        buttonType,
+        medicationName,
+      },
+    });
+
+    if (!checkIn) {
+      return NextResponse.json(
+        { error: 'Check-in record not found' },
+        { status: 404 }
+      );
+    }
+
+    // Delete associated scheduled notifications first
+    const deletedNotifications = await prisma.scheduledNotification.deleteMany({
+      where: {
+        checkInId: checkIn.id,
+      },
+    });
+
+    // Delete the check-in record
+    await prisma.dailyCheckIn.delete({
+      where: {
+        id: checkIn.id,
+      },
+    });
+
+    console.log(`Daily check-in deleted: user=${user.email}, date=${dateParam}, medication=${medicationName}, notifications=${deletedNotifications.count}`);
+
+    return NextResponse.json({
+      success: true,
+      message: 'Check-in deleted successfully',
+      deleted: {
+        id: checkIn.id,
+        date: checkIn.date,
+        buttonType: checkIn.buttonType,
+        medicationName: checkIn.medicationName,
+        nextDate: checkIn.nextDate,
+        createdAt: checkIn.createdAt.toISOString(),
+        scheduledNotificationsRemoved: deletedNotifications.count,
+      },
+      user: {
+        email: user.email,
+        wpUserId: user.wpUserId,
+      },
+    });
+  } catch (error) {
+    console.error('Delete check-in error:', error);
+    return NextResponse.json(
+      { error: 'An error occurred while deleting check-in' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * Get calendar view data for admin dashboard
  */
 async function getCalendarView(

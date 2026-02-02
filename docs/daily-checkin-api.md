@@ -306,9 +306,130 @@ Returns all medications checked in for the specified date.
 
 ---
 
+### 3. Delete Daily Check-In
+
+Deletes a specific daily check-in record and its associated scheduled notifications.
+
+**Endpoint:** `DELETE /api/app-users/daily-checkin`
+
+**Authentication:** API key required (mobile app only)
+
+#### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `wpUserId` | string | Yes* | WordPress user ID |
+| `email` | string | Yes* | User email address |
+| `date` | string | Yes | Check-in date in `YYYY-MM-DD` format |
+| `buttonType` | string | No | Type of check-in button (default: `"default"`) |
+| `medicationName` | string | No | Name of medication (default: `"default"`) |
+
+> *Either `wpUserId` or `email` must be provided to identify the user.
+
+#### Example Request
+
+```
+DELETE /api/app-users/daily-checkin?wpUserId=12345&date=2024-01-15&medicationName=Semaglutide
+```
+
+or
+
+```
+DELETE /api/app-users/daily-checkin?email=user@example.com&date=2024-01-15&buttonType=default&medicationName=Semaglutide
+```
+
+#### Success Response (200 OK)
+
+```json
+{
+  "success": true,
+  "message": "Check-in deleted successfully",
+  "deleted": {
+    "id": "clx1abc123def456",
+    "date": "2024-01-15",
+    "buttonType": "default",
+    "medicationName": "Semaglutide",
+    "nextDate": "2024-01-22",
+    "createdAt": "2024-01-15T08:30:00.000Z",
+    "scheduledNotificationsRemoved": 3
+  },
+  "user": {
+    "email": "user@example.com",
+    "wpUserId": "12345"
+  }
+}
+```
+
+#### Error Responses
+
+| Status | Description |
+|--------|-------------|
+| 400 | Missing required fields (wpUserId/email or date) |
+| 400 | Invalid date format (must be YYYY-MM-DD) |
+| 401 | Invalid or missing API key |
+| 404 | User not found |
+| 404 | Check-in record not found |
+| 500 | Server error |
+
+#### Implementation Examples
+
+**Flutter (Dart):**
+```dart
+Future<Map<String, dynamic>> deleteCheckIn({
+  required String wpUserId,
+  required String date,
+  String buttonType = 'default',
+  String medicationName = 'default',
+}) async {
+  final uri = Uri.parse('$baseUrl/api/app-users/daily-checkin').replace(
+    queryParameters: {
+      'wpUserId': wpUserId,
+      'date': date,
+      'buttonType': buttonType,
+      'medicationName': medicationName,
+    },
+  );
+
+  final response = await http.delete(
+    uri,
+    headers: {'X-API-Key': apiKey},
+  );
+
+  return jsonDecode(response.body);
+}
+```
+
+**React Native / JavaScript:**
+```javascript
+async function deleteCheckIn(wpUserId, date, options = {}) {
+  const { buttonType = 'default', medicationName = 'default' } = options;
+
+  const params = new URLSearchParams({
+    wpUserId,
+    date,
+    buttonType,
+    medicationName,
+  });
+
+  const response = await fetch(
+    `${BASE_URL}/api/app-users/daily-checkin?${params}`,
+    {
+      method: 'DELETE',
+      headers: {
+        'X-API-Key': API_KEY,
+      },
+    }
+  );
+
+  return response.json();
+}
+```
+
+---
+
 ## Account Management Endpoints
 
-### 3. Delete User Account
+### 4. Delete User Account
 
 Permanently deletes a user account and all associated data. This is a destructive operation that cannot be undone.
 
