@@ -26,6 +26,7 @@ const ALL_ENTITIES = [
   'faqs',
   'notifications',
   'users',
+  'user-devices',
   'weight-logs',
   'medication-logs',
   'daily-checkins',
@@ -196,6 +197,35 @@ export async function GET(request: NextRequest) {
       }));
     }
 
+    // Export User Devices (multi-device FCM support)
+    if (requestedEntities.includes('user-devices')) {
+      const devices = await prisma.userDevice.findMany({
+        include: {
+          appUser: {
+            select: {
+              id: true,
+              email: true,
+            }
+          }
+        },
+        orderBy: { lastActiveAt: 'desc' },
+      });
+
+      exportData.entities['user-devices'] = devices.map(device => ({
+        id: device.id,
+        appUserId: device.appUserId,
+        userEmail: device.appUser.email,
+        deviceId: device.deviceId,
+        platform: device.platform,
+        fcmToken: device.fcmToken,
+        deviceName: device.deviceName,
+        appVersion: device.appVersion,
+        lastActiveAt: device.lastActiveAt.toISOString(),
+        createdAt: device.createdAt.toISOString(),
+        updatedAt: device.updatedAt.toISOString(),
+      }));
+    }
+
     // Export Weight Logs
     if (requestedEntities.includes('weight-logs')) {
       const weightLogs = await prisma.weightLog.findMany({
@@ -290,6 +320,7 @@ export async function GET(request: NextRequest) {
       faqs: exportData.entities.faqs?.length || 0,
       notifications: exportData.entities.notifications?.length || 0,
       users: exportData.entities.users?.length || 0,
+      'user-devices': exportData.entities['user-devices']?.length || 0,
       'weight-logs': exportData.entities['weight-logs']?.length || 0,
       'medication-logs': exportData.entities['medication-logs']?.length || 0,
       'daily-checkins': exportData.entities['daily-checkins']?.length || 0,

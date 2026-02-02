@@ -4,10 +4,10 @@ import { authOptions } from '@/lib/auth-config';
 import { prisma } from '@/lib/prisma';
 
 /**
- * One-time cleanup endpoint to remove duplicate FCM tokens
- * This ensures each FCM token is only associated with one user
+ * Cleanup endpoint to remove duplicate FCM tokens and migrate to multi-device support
  *
- * Run this once after deploying the fix to clean existing data
+ * POST: Clean up duplicates and optionally migrate legacy tokens to UserDevice table
+ * GET: Check for duplicate tokens and device statistics
  */
 export async function POST(request: NextRequest) {
   try {
@@ -20,7 +20,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find all FCM tokens that appear more than once
+    const { searchParams } = new URL(request.url);
+    const migrateToDevices = searchParams.get('migrate') === 'true';
+
+    let totalCleaned = 0;
+    let totalMigrated = 0;
+    const cleanupDetails: { token: string; kept: string; cleared: number }[] = [];
+
+    // Step 1: Clean up duplicate FCM tokens in legacy AppUser.fcmToken field
     const duplicateTokens = await prisma.$queryRaw<{ fcmToken: string; count: bigint }[]>`
       SELECT "fcmToken", COUNT(*) as count
       FROM "app_user"
@@ -29,20 +36,7 @@ export async function POST(request: NextRequest) {
       HAVING COUNT(*) > 1
     `;
 
-    if (duplicateTokens.length === 0) {
-      return NextResponse.json({
-        success: true,
-        message: 'No duplicate FCM tokens found',
-        duplicatesFound: 0,
-        tokensCleaned: 0,
-      });
-    }
-
-    let totalCleaned = 0;
-    const cleanupDetails: { token: string; kept: string; cleared: number }[] = [];
-
     for (const { fcmToken } of duplicateTokens) {
-      // Find all users with this token, ordered by most recent activity
       const usersWithToken = await prisma.appUser.findMany({
         where: { fcmToken },
         orderBy: [
@@ -59,9 +53,7 @@ export async function POST(request: NextRequest) {
       });
 
       if (usersWithToken.length > 1) {
-        // Keep token for the most recently active user, clear from others
         const [keepUser, ...clearUsers] = usersWithToken;
-
         const clearIds = clearUsers.map(u => u.id);
         await prisma.appUser.updateMany({
           where: { id: { in: clearIds } },
@@ -77,11 +69,89 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Step 2: Clean up duplicate tokens in UserDevice table
+    const duplicateDeviceTokens = await prisma.$queryRaw<{ fcmToken: string; count: bigint }[]>`
+      SELECT "fcmToken", COUNT(*) as count
+      FROM "user_devices"
+      GROUP BY "fcmToken"
+      HAVING COUNT(*) > 1
+    `;
+
+    let deviceDuplicatesCleaned = 0;
+    for (const { fcmToken } of duplicateDeviceTokens) {
+      const devicesWithToken = await prisma.userDevice.findMany({
+        where: { fcmToken },
+        orderBy: [
+          { lastActiveAt: 'desc' },
+          { updatedAt: 'desc' },
+        ],
+        select: {
+          id: true,
+          deviceId: true,
+          appUserId: true,
+        },
+      });
+
+      if (devicesWithToken.length > 1) {
+        // Keep the most recent, delete others
+        const [, ...deleteDevices] = devicesWithToken;
+        const deleteIds = deleteDevices.map(d => d.id);
+
+        await prisma.userDevice.deleteMany({
+          where: { id: { in: deleteIds } },
+        });
+
+        deviceDuplicatesCleaned += deleteDevices.length;
+      }
+    }
+
+    // Step 3: Optionally migrate legacy fcmToken to UserDevice table
+    if (migrateToDevices) {
+      const usersWithLegacyToken = await prisma.appUser.findMany({
+        where: {
+          fcmToken: { not: null },
+        },
+        select: {
+          id: true,
+          email: true,
+          fcmToken: true,
+          devices: {
+            select: { fcmToken: true },
+          },
+        },
+      });
+
+      for (const user of usersWithLegacyToken) {
+        if (!user.fcmToken) continue;
+
+        // Check if this token already exists in devices
+        const existingDeviceTokens = user.devices.map(d => d.fcmToken);
+        if (existingDeviceTokens.includes(user.fcmToken)) {
+          continue; // Already migrated
+        }
+
+        // Create a device entry for the legacy token
+        await prisma.userDevice.create({
+          data: {
+            appUserId: user.id,
+            deviceId: `legacy_${user.id}`,
+            platform: 'unknown',
+            fcmToken: user.fcmToken,
+            deviceName: 'Migrated from legacy',
+          },
+        });
+
+        totalMigrated++;
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      message: `Cleaned ${totalCleaned} duplicate FCM token(s)`,
-      duplicatesFound: duplicateTokens.length,
-      tokensCleaned: totalCleaned,
+      message: `Cleanup completed`,
+      legacyDuplicatesFound: duplicateTokens.length,
+      legacyTokensCleaned: totalCleaned,
+      deviceDuplicatesCleaned,
+      tokensMigratedToDevices: totalMigrated,
       details: cleanupDetails,
     });
   } catch (error) {
@@ -94,7 +164,7 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * GET - Check for duplicate tokens without cleaning
+ * GET - Check token status and statistics
  */
 export async function GET(request: NextRequest) {
   try {
@@ -107,8 +177,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Find all FCM tokens that appear more than once
-    const duplicateTokens = await prisma.$queryRaw<{ fcmToken: string; count: bigint }[]>`
+    // Check legacy duplicates
+    const legacyDuplicates = await prisma.$queryRaw<{ fcmToken: string; count: bigint }[]>`
       SELECT "fcmToken", COUNT(*) as count
       FROM "app_user"
       WHERE "fcmToken" IS NOT NULL
@@ -116,29 +186,71 @@ export async function GET(request: NextRequest) {
       HAVING COUNT(*) > 1
     `;
 
-    // Get details for each duplicate
-    const duplicateDetails = await Promise.all(
-      duplicateTokens.map(async ({ fcmToken, count }) => {
-        const users = await prisma.appUser.findMany({
-          where: { fcmToken },
-          select: { email: true, wpUserId: true, lastLoginAt: true },
-        });
-        return {
-          token: fcmToken.substring(0, 20) + '...',
-          count: Number(count),
-          users: users.map(u => ({ email: u.email, wpUserId: u.wpUserId })),
-        };
-      })
-    );
+    // Check device table duplicates
+    let deviceDuplicates: { fcmToken: string; count: bigint }[] = [];
+    try {
+      deviceDuplicates = await prisma.$queryRaw<{ fcmToken: string; count: bigint }[]>`
+        SELECT "fcmToken", COUNT(*) as count
+        FROM "user_devices"
+        GROUP BY "fcmToken"
+        HAVING COUNT(*) > 1
+      `;
+    } catch {
+      // Table might not exist yet
+    }
+
+    // Get statistics
+    const [
+      totalUsers,
+      usersWithLegacyToken,
+      totalDevices,
+      devicesByPlatform,
+    ] = await Promise.all([
+      prisma.appUser.count({ where: { status: 'Active' } }),
+      prisma.appUser.count({ where: { fcmToken: { not: null }, status: 'Active' } }),
+      prisma.userDevice.count().catch(() => 0),
+      prisma.userDevice.groupBy({
+        by: ['platform'],
+        _count: { platform: true },
+      }).catch(() => []),
+    ]);
+
+    // Users with multiple devices
+    let usersWithMultipleDevices = 0;
+    try {
+      const multiDeviceUsers = await prisma.$queryRaw<{ count: bigint }[]>`
+        SELECT COUNT(DISTINCT "appUserId") as count
+        FROM "user_devices"
+        GROUP BY "appUserId"
+        HAVING COUNT(*) > 1
+      `;
+      usersWithMultipleDevices = multiDeviceUsers.length;
+    } catch {
+      // Table might not exist yet
+    }
 
     return NextResponse.json({
-      duplicateTokensFound: duplicateTokens.length,
-      totalDuplicateRecords: duplicateTokens.reduce((sum, d) => sum + Number(d.count), 0),
-      details: duplicateDetails,
-      action: 'POST to this endpoint to clean up duplicates',
+      statistics: {
+        totalActiveUsers: totalUsers,
+        usersWithLegacyToken,
+        totalDevices,
+        usersWithMultipleDevices,
+        devicesByPlatform: devicesByPlatform.map((d: any) => ({
+          platform: d.platform,
+          count: d._count.platform,
+        })),
+      },
+      duplicates: {
+        legacyDuplicatesFound: legacyDuplicates.length,
+        deviceDuplicatesFound: deviceDuplicates.length,
+      },
+      actions: {
+        cleanup: 'POST to this endpoint to clean up duplicates',
+        migrate: 'POST with ?migrate=true to migrate legacy tokens to UserDevice table',
+      },
     });
   } catch (error) {
-    console.error('Check duplicate tokens error:', error);
+    console.error('Check token status error:', error);
     return NextResponse.json(
       { error: 'An error occurred', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

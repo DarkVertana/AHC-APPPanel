@@ -150,8 +150,11 @@ model AppUser {
   lastLoginIp String?
   loginCount  Int       @default(0)
 
-  // Push notifications
-  fcmToken String? // Firebase Cloud Messaging token for push notifications
+  // Push notifications (legacy - kept for backward compatibility)
+  fcmToken String? // Firebase Cloud Messaging token for push notifications (deprecated - use UserDevice)
+
+  // Multi-device support
+  devices UserDevice[]
 
   // WooCommerce integration
   woocommerceCustomerId Int? // Cached WooCommerce customer ID for faster API lookups
@@ -170,6 +173,32 @@ model AppUser {
   @@index([email])
   @@index([wpUserId])
   @@map("app_user")
+}
+
+model UserDevice {
+  id        String   @id @default(cuid())
+  appUserId String // Foreign key to AppUser
+  deviceId  String // Unique device identifier from the app
+  platform  String // "ios" or "android"
+  fcmToken  String // Firebase Cloud Messaging token
+  deviceName String? // Optional device name/model
+  appVersion String? // App version for debugging
+  lastActiveAt DateTime @default(now()) // Last time this device was active
+
+  // Relations
+  appUser AppUser @relation(fields: [appUserId], references: [id], onDelete: Cascade)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Unique constraint: one entry per device per user
+  @@unique([appUserId, deviceId])
+  @@index([appUserId])
+  @@index([deviceId])
+  @@index([fcmToken])
+  @@index([platform])
+  @@map("user_devices")
 }
 
 model Blog {

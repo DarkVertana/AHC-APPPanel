@@ -872,7 +872,8 @@ export async function sendPushNotificationToMultiple(
 }
 
 /**
- * Send push notification to all active users
+ * Send push notification to all active users (all devices)
+ * Uses UserDevice table for multi-device support, falls back to legacy fcmToken
  */
 export async function sendPushNotificationToAll(
   title: string,
@@ -880,10 +881,23 @@ export async function sendPushNotificationToAll(
   imageUrl?: string,
   data?: Record<string, string>,
   logOptions?: { source?: NotificationSource; type?: NotificationType; sourceId?: string }
-): Promise<{ successCount: number; failureCount: number; totalUsers: number; error?: string; errors?: string[]; logId?: string }> {
+): Promise<{ successCount: number; failureCount: number; totalUsers: number; totalDevices: number; error?: string; errors?: string[]; logId?: string }> {
   try {
-    // Get all active users with FCM tokens
-    const users = await prisma.appUser.findMany({
+    // Get all FCM tokens from UserDevice table (multi-device support)
+    const devices = await prisma.userDevice.findMany({
+      where: {
+        appUser: {
+          status: 'Active',
+        },
+      },
+      select: {
+        fcmToken: true,
+        appUserId: true,
+      },
+    });
+
+    // Also get legacy fcmToken from AppUser for backward compatibility
+    const usersWithLegacyToken = await prisma.appUser.findMany({
       where: {
         fcmToken: {
           not: null,
@@ -891,15 +905,30 @@ export async function sendPushNotificationToAll(
         status: 'Active',
       },
       select: {
+        id: true,
         fcmToken: true,
       },
     });
 
-    const allTokens = users
-      .map((u) => u.fcmToken)
-      .filter((token): token is string => token !== null);
+    // Collect all unique tokens
+    const allTokens: string[] = [];
+    const userIds = new Set<string>();
 
-    // CRITICAL: Remove duplicate tokens to prevent multiple notifications to same device
+    // Add tokens from devices table
+    for (const device of devices) {
+      allTokens.push(device.fcmToken);
+      userIds.add(device.appUserId);
+    }
+
+    // Add legacy tokens that aren't already in the list
+    for (const user of usersWithLegacyToken) {
+      if (user.fcmToken && !allTokens.includes(user.fcmToken)) {
+        allTokens.push(user.fcmToken);
+        userIds.add(user.id);
+      }
+    }
+
+    // Remove duplicates
     const fcmTokens = [...new Set(allTokens)];
 
     if (allTokens.length !== fcmTokens.length) {
@@ -912,21 +941,23 @@ export async function sendPushNotificationToAll(
         successCount: 0,
         failureCount: 0,
         totalUsers: 0,
+        totalDevices: 0,
         error: 'No active users with FCM tokens found',
       };
     }
 
-    console.log(`Sending push notification to ${fcmTokens.length} unique users (${allTokens.length} total records)`);
+    console.log(`Sending push notification to ${fcmTokens.length} device(s) across ${userIds.size} user(s)`);
     const result = await sendPushNotificationToMultiple(fcmTokens, title, body, imageUrl, data, logOptions);
 
     return {
       successCount: result.successCount,
       failureCount: result.failureCount,
-      totalUsers: fcmTokens.length,
+      totalUsers: userIds.size,
+      totalDevices: fcmTokens.length,
       errors: result.errors,
       logId: result.logId,
-      error: result.failureCount > 0 && result.errors.length > 0 
-        ? result.errors[0] 
+      error: result.failureCount > 0 && result.errors.length > 0
+        ? result.errors[0]
         : undefined,
     };
   } catch (error: any) {
@@ -935,6 +966,7 @@ export async function sendPushNotificationToAll(
       successCount: 0,
       failureCount: 0,
       totalUsers: 0,
+      totalDevices: 0,
       error: error.message || 'Failed to send push notifications',
       errors: [error.message || error.code || 'Failed to send push notifications'],
     };
@@ -945,6 +977,7 @@ export async function sendPushNotificationToAll(
 
 /**
  * Send push notification to a specific user by email or wpUserId
+ * Sends to ALL registered devices for multi-device support
  */
 export async function sendPushNotificationToUser(
   emailOrWpUserId: string,
@@ -953,52 +986,105 @@ export async function sendPushNotificationToUser(
   imageUrl?: string,
   data?: Record<string, string>,
   logOptions?: { source?: NotificationSource; type?: NotificationType; sourceId?: string }
-): Promise<{ success: boolean; messageId?: string; error?: string; logId?: string }> {
+): Promise<{ success: boolean; messageId?: string; error?: string; logId?: string; devicesSent?: number; devicesFailed?: number }> {
   try {
     console.log('Looking up user for push notification:', emailOrWpUserId);
 
-    // Case-insensitive email lookup
+    // Case-insensitive email lookup with devices
     const user = await prisma.appUser.findFirst({
       where: {
         OR: [
           { email: { equals: emailOrWpUserId, mode: 'insensitive' } },
           { wpUserId: emailOrWpUserId },
         ],
-        fcmToken: {
-          not: null,
-        },
         status: 'Active',
       },
       select: {
         id: true,
         email: true,
         wpUserId: true,
-        fcmToken: true,
+        fcmToken: true, // Legacy field
+        devices: {
+          select: {
+            id: true,
+            deviceId: true,
+            platform: true,
+            fcmToken: true,
+          },
+        },
       },
     });
 
-    if (!user || !user.fcmToken) {
-      console.log('User not found or no FCM token for:', emailOrWpUserId);
+    if (!user) {
+      console.log('User not found:', emailOrWpUserId);
       return {
         success: false,
-        error: `User not found or no FCM token for: ${emailOrWpUserId}`,
+        error: `User not found: ${emailOrWpUserId}`,
       };
     }
 
-    console.log('Found user:', user.email, 'sending push...');
+    // Collect all FCM tokens (from devices table + legacy field)
+    const deviceTokens = user.devices.map(d => d.fcmToken);
+    const allTokens = new Set(deviceTokens);
 
-    return await sendPushNotification(
-      user.fcmToken,
-      title,
-      body,
-      imageUrl,
-      data,
-      logOptions ? {
-        ...logOptions,
-        recipientEmail: user.email,
-        recipientWpUserId: user.wpUserId,
-      } : undefined
-    );
+    // Include legacy fcmToken if it exists and isn't already in devices
+    if (user.fcmToken && !allTokens.has(user.fcmToken)) {
+      allTokens.add(user.fcmToken);
+    }
+
+    const fcmTokens = Array.from(allTokens);
+
+    if (fcmTokens.length === 0) {
+      console.log('No FCM tokens for user:', emailOrWpUserId);
+      return {
+        success: false,
+        error: `No FCM tokens for user: ${emailOrWpUserId}`,
+      };
+    }
+
+    console.log(`Found user: ${user.email}, sending to ${fcmTokens.length} device(s)...`);
+
+    // Send to all devices
+    if (fcmTokens.length === 1) {
+      // Single device - use direct send
+      const result = await sendPushNotification(
+        fcmTokens[0],
+        title,
+        body,
+        imageUrl,
+        data,
+        logOptions ? {
+          ...logOptions,
+          recipientEmail: user.email,
+          recipientWpUserId: user.wpUserId,
+        } : undefined
+      );
+      return {
+        ...result,
+        devicesSent: result.success ? 1 : 0,
+        devicesFailed: result.success ? 0 : 1,
+      };
+    } else {
+      // Multiple devices - use batch send
+      const result = await sendPushNotificationToMultiple(
+        fcmTokens,
+        title,
+        body,
+        imageUrl,
+        data,
+        logOptions ? {
+          ...logOptions,
+        } : undefined
+      );
+
+      return {
+        success: result.successCount > 0,
+        error: result.failureCount > 0 && result.errors.length > 0 ? result.errors[0] : undefined,
+        logId: result.logId,
+        devicesSent: result.successCount,
+        devicesFailed: result.failureCount,
+      };
+    }
   } catch (error: any) {
     console.error('Error sending push notification to user:', error);
     return {

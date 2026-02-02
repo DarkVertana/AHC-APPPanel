@@ -427,6 +427,7 @@ export async function POST(request: NextRequest) {
           await prisma.medicationLog.deleteMany({});
           await prisma.weightLog.deleteMany({});
           await prisma.notificationView.deleteMany({});
+          await prisma.userDevice.deleteMany({});
           await prisma.appUser.deleteMany({});
         }
 
@@ -509,6 +510,84 @@ export async function POST(request: NextRequest) {
         results.summary.users = imported + updated;
       } catch (error: any) {
         results.errors.users = error.message;
+        results.success = false;
+      }
+    }
+
+    // Import User Devices (multi-device FCM support)
+    if (importEntities.includes('user-devices') && entities['user-devices']) {
+      try {
+        const devices = entities['user-devices'];
+        let imported = 0;
+        let updated = 0;
+        let skipped = 0;
+        const errors: string[] = [];
+
+        if (mode === 'replace') {
+          await prisma.userDevice.deleteMany({});
+        }
+
+        for (const device of devices) {
+          try {
+            if (!device.appUserId || !device.deviceId || !device.fcmToken) {
+              errors.push(`User device missing required fields: ${JSON.stringify(device).substring(0, 100)}`);
+              continue;
+            }
+
+            // Verify user exists
+            const user = await prisma.appUser.findUnique({
+              where: { id: device.appUserId },
+            });
+
+            if (!user) {
+              errors.push(`User device ${device.id}: User ${device.appUserId} not found`);
+              continue;
+            }
+
+            if (mode === 'skip-existing') {
+              const existing = await prisma.userDevice.findUnique({
+                where: { id: device.id },
+              });
+              if (existing) {
+                skipped++;
+                continue;
+              }
+            }
+
+            await prisma.userDevice.upsert({
+              where: { id: device.id },
+              update: {
+                appUserId: device.appUserId,
+                deviceId: device.deviceId,
+                platform: device.platform || 'unknown',
+                fcmToken: device.fcmToken,
+                deviceName: device.deviceName || null,
+                appVersion: device.appVersion || null,
+                lastActiveAt: device.lastActiveAt ? new Date(device.lastActiveAt) : new Date(),
+              },
+              create: {
+                id: device.id,
+                appUserId: device.appUserId,
+                deviceId: device.deviceId,
+                platform: device.platform || 'unknown',
+                fcmToken: device.fcmToken,
+                deviceName: device.deviceName || null,
+                appVersion: device.appVersion || null,
+                lastActiveAt: device.lastActiveAt ? new Date(device.lastActiveAt) : new Date(),
+              },
+            });
+
+            if (mode === 'replace') imported++;
+            else updated++;
+          } catch (error: any) {
+            errors.push(`User device ${device.id}: ${error.message}`);
+          }
+        }
+
+        results.imported['user-devices'] = { imported, updated, skipped, errors };
+        results.summary['user-devices'] = imported + updated;
+      } catch (error: any) {
+        results.errors['user-devices'] = error.message;
         results.success = false;
       }
     }
