@@ -257,6 +257,12 @@ export default function SettingsPage() {
     // Custom API Key
     customApiKey: '',
 
+    // Custom Notification Messages
+    orderProcessingTitle: '',
+    orderProcessingBody: '',
+    orderCompletedTitle: '',
+    orderCompletedBody: '',
+
     // Maintenance Mode
     maintenanceMode: false,
     maintenanceMessage: '',
@@ -281,6 +287,10 @@ export default function SettingsPage() {
             fcmServerKey: data.fcmServerKey || '',
             fcmProjectId: data.fcmProjectId || '',
             customApiKey: data.customApiKey || '',
+            orderProcessingTitle: data.orderProcessingTitle || '',
+            orderProcessingBody: data.orderProcessingBody || '',
+            orderCompletedTitle: data.orderCompletedTitle || '',
+            orderCompletedBody: data.orderCompletedBody || '',
             maintenanceMode: data.maintenanceMode ?? false,
             maintenanceMessage: data.maintenanceMessage || '',
           }));
@@ -468,6 +478,10 @@ export default function SettingsPage() {
         fcmServerKey: '',
         fcmProjectId: '',
         customApiKey: prev.customApiKey, // Preserve custom API key
+        orderProcessingTitle: '',
+        orderProcessingBody: '',
+        orderCompletedTitle: '',
+        orderCompletedBody: '',
         maintenanceMode: false,
         maintenanceMessage: '',
       }));
@@ -602,6 +616,7 @@ export default function SettingsPage() {
     { id: 'security', name: 'Security', icon: 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z' },
     { id: 'api-keys', name: 'API Keys', icon: 'M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z' },
     { id: 'woocommerce', name: 'WooCommerce', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z' },
+    { id: 'notifications', name: 'Notifications', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' },
     { id: 'backup', name: 'Backup & Restore', icon: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12' },
   ];
 
@@ -1651,6 +1666,126 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
+          </div>
+        )}
+
+        {/* Notifications Tab */}
+        {activeTab === 'notifications' && (
+          <div className="bg-white rounded-lg border border-[#dfedfb] p-6">
+            <h4 className="text-lg font-semibold text-[#435970] mb-2">Custom Notification Messages</h4>
+            <p className="text-sm text-[#7895b3] mb-6">
+              Customize the push notification messages sent to app users when their order status changes via WooCommerce webhooks.
+              Leave fields empty to use the default messages. The order number (e.g. #1234) will be automatically inserted using <code className="bg-[#dfedfb] px-1.5 py-0.5 rounded text-xs font-mono text-[#435970]">{'{orderNumber}'}</code>.
+            </p>
+
+            {/* Order Processing */}
+            <div className="mb-8">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                <h5 className="text-base font-semibold text-[#435970]">Order Processing</h5>
+              </div>
+              <div className="space-y-4 pl-4 border-l-2 border-blue-200">
+                <div>
+                  <label htmlFor="orderProcessingTitle" className="block text-sm font-medium text-[#435970] mb-2">
+                    Notification Title
+                  </label>
+                  <input
+                    type="text"
+                    id="orderProcessingTitle"
+                    value={settings.orderProcessingTitle}
+                    onChange={(e) => handleInputChange('orderProcessingTitle', e.target.value)}
+                    className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] placeholder:text-[#7895b3]"
+                    placeholder="Order Processing"
+                  />
+                  <p className="text-xs text-[#7895b3] mt-1">Default: &quot;Order Processing&quot;</p>
+                </div>
+                <div>
+                  <label htmlFor="orderProcessingBody" className="block text-sm font-medium text-[#435970] mb-2">
+                    Notification Message
+                  </label>
+                  <textarea
+                    id="orderProcessingBody"
+                    value={settings.orderProcessingBody}
+                    onChange={(e) => handleInputChange('orderProcessingBody', e.target.value)}
+                    rows={2}
+                    className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] placeholder:text-[#7895b3] resize-none"
+                    placeholder="Your order #{orderNumber} is being processed."
+                  />
+                  <p className="text-xs text-[#7895b3] mt-1">
+                    Default: &quot;Your order #{'{orderNumber}'} is being processed.&quot; &mdash; Use <code className="bg-[#dfedfb] px-1 rounded font-mono">{'{orderNumber}'}</code> where you want the order number.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Order Completed */}
+            <div className="mb-6">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                <h5 className="text-base font-semibold text-[#435970]">Order Completed</h5>
+              </div>
+              <div className="space-y-4 pl-4 border-l-2 border-green-200">
+                <div>
+                  <label htmlFor="orderCompletedTitle" className="block text-sm font-medium text-[#435970] mb-2">
+                    Notification Title
+                  </label>
+                  <input
+                    type="text"
+                    id="orderCompletedTitle"
+                    value={settings.orderCompletedTitle}
+                    onChange={(e) => handleInputChange('orderCompletedTitle', e.target.value)}
+                    className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] placeholder:text-[#7895b3]"
+                    placeholder="Order Completed"
+                  />
+                  <p className="text-xs text-[#7895b3] mt-1">Default: &quot;Order Completed&quot;</p>
+                </div>
+                <div>
+                  <label htmlFor="orderCompletedBody" className="block text-sm font-medium text-[#435970] mb-2">
+                    Notification Message
+                  </label>
+                  <textarea
+                    id="orderCompletedBody"
+                    value={settings.orderCompletedBody}
+                    onChange={(e) => handleInputChange('orderCompletedBody', e.target.value)}
+                    rows={2}
+                    className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] placeholder:text-[#7895b3] resize-none"
+                    placeholder="Your order #{orderNumber} has been completed! Thank you for your purchase."
+                  />
+                  <p className="text-xs text-[#7895b3] mt-1">
+                    Default: &quot;Your order #{'{orderNumber}'} has been completed! Thank you for your purchase.&quot; &mdash; Use <code className="bg-[#dfedfb] px-1 rounded font-mono">{'{orderNumber}'}</code> where you want the order number.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Preview Section */}
+            <div className="bg-[#dfedfb]/50 rounded-lg p-4">
+              <p className="text-sm text-[#435970] font-medium mb-3">Preview (with order #1234):</p>
+              <div className="space-y-3">
+                <div className="bg-white rounded-lg p-3 border border-[#dfedfb]">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                    <p className="text-sm font-semibold text-[#435970]">
+                      {settings.orderProcessingTitle || 'Order Processing'}
+                    </p>
+                  </div>
+                  <p className="text-sm text-[#7895b3] ml-4">
+                    {(settings.orderProcessingBody || 'Your order #{orderNumber} is being processed.').replace('{orderNumber}', '1234')}
+                  </p>
+                </div>
+                <div className="bg-white rounded-lg p-3 border border-[#dfedfb]">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                    <p className="text-sm font-semibold text-[#435970]">
+                      {settings.orderCompletedTitle || 'Order Completed'}
+                    </p>
+                  </div>
+                  <p className="text-sm text-[#7895b3] ml-4">
+                    {(settings.orderCompletedBody || 'Your order #{orderNumber} has been completed! Thank you for your purchase.').replace('{orderNumber}', '1234')}
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

@@ -150,9 +150,24 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Get notification content
-    const { title, body: message } = getOrderStatusMessage(orderStatus, String(orderNumber));
+    // Get notification content (check for custom messages in settings)
+    let { title, body: message } = getOrderStatusMessage(orderStatus, String(orderNumber));
     const icon = getOrderStatusIcon(orderStatus);
+
+    try {
+      const settings = await prisma.settings.findUnique({ where: { id: 'settings' } });
+      if (settings) {
+        if (orderStatus === 'processing' && (settings.orderProcessingTitle || settings.orderProcessingBody)) {
+          if (settings.orderProcessingTitle) title = settings.orderProcessingTitle;
+          if (settings.orderProcessingBody) message = settings.orderProcessingBody.replace('{orderNumber}', String(orderNumber));
+        } else if (orderStatus === 'completed' && (settings.orderCompletedTitle || settings.orderCompletedBody)) {
+          if (settings.orderCompletedTitle) title = settings.orderCompletedTitle;
+          if (settings.orderCompletedBody) message = settings.orderCompletedBody.replace('{orderNumber}', String(orderNumber));
+        }
+      }
+    } catch (settingsError) {
+      console.log('Failed to fetch custom notification settings, using defaults');
+    }
     const url = `/orders/${orderId}`;
 
     console.log('Notification:', { title, message, icon });

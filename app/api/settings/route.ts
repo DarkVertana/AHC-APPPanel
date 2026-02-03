@@ -69,6 +69,10 @@ export async function PUT(request: NextRequest) {
       customApiKey,
       maintenanceMode,
       maintenanceMessage,
+      orderProcessingTitle,
+      orderProcessingBody,
+      orderCompletedTitle,
+      orderCompletedBody,
     } = body;
 
     // Build update data object - only include fields that are provided
@@ -85,6 +89,10 @@ export async function PUT(request: NextRequest) {
     if (customApiKey !== undefined) updateData.customApiKey = customApiKey;
     if (maintenanceMode !== undefined) updateData.maintenanceMode = maintenanceMode;
     if (maintenanceMessage !== undefined) updateData.maintenanceMessage = maintenanceMessage;
+    if (orderProcessingTitle !== undefined) updateData.orderProcessingTitle = orderProcessingTitle || null;
+    if (orderProcessingBody !== undefined) updateData.orderProcessingBody = orderProcessingBody || null;
+    if (orderCompletedTitle !== undefined) updateData.orderCompletedTitle = orderCompletedTitle || null;
+    if (orderCompletedBody !== undefined) updateData.orderCompletedBody = orderCompletedBody || null;
 
     // Use upsert to create or update settings atomically
     const updatedSettings = await prisma.settings.upsert({

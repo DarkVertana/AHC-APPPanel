@@ -69,6 +69,13 @@ model Settings {
   // Custom API Key (for panel reset recovery - plain text, admin-managed)
   customApiKey String?
 
+  // Custom Notification Messages (for WooCommerce webhooks)
+  // Use {orderNumber} as placeholder for the order/subscription number
+  orderProcessingTitle String?
+  orderProcessingBody  String?
+  orderCompletedTitle  String?
+  orderCompletedBody   String?
+
   // Maintenance Mode
   maintenanceMode    Boolean @default(false)
   maintenanceMessage String?

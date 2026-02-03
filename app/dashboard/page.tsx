@@ -286,26 +286,6 @@ export default function DashboardPage() {
           </div>
         </Link>
 
-        {/* Weight Logs */}
-        <Link href="/dashboard/log-data" className="block">
-          <div className="bg-white rounded-lg p-6 border border-[#dfedfb] hover:border-[#7895b3] hover:shadow-md transition-all cursor-pointer">
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-gradient-to-br from-[#7895b3] to-[#dfedfb] rounded-lg">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              </div>
-              <span className="text-2xl">⚖️</span>
-            </div>
-            <h4 className="text-3xl font-bold text-[#435970] mb-1">{data.weightLogs.total.toLocaleString()}</h4>
-            <p className="text-sm text-[#7895b3] mb-2">Weight Logs</p>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full font-medium">
-                {data.weightLogs.today} today
-              </span>
-            </div>
-          </div>
-        </Link>
       </div>
 
       {/* Charts Section */}
