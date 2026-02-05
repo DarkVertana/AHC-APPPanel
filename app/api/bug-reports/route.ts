@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
 import { validateApiKey } from '@/lib/middleware';
 import { prisma } from '@/lib/prisma';
+import { uploadToCloudinary, isCloudinaryConfigured } from '@/lib/cloudinary';
 
 // GET - List all bug reports (admin)
 export async function GET(request: NextRequest) {
@@ -83,6 +84,9 @@ export async function GET(request: NextRequest) {
 }
 
 // POST - Create bug report (app user via API key)
+// Accepts both JSON and multipart/form-data:
+//   JSON: { title, description, image (URL string), ... }
+//   FormData: title, description, image (File), ... — image is uploaded to Cloudinary automatically
 export async function POST(request: NextRequest) {
   try {
     let apiKey;
@@ -103,19 +107,82 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
-    const {
-      title,
-      description,
-      image,
-      platform,
-      osVersion,
-      deviceName,
-      appVersion,
-      wpUserId,
-      email,
-      name,
-    } = body;
+    let title: string | null = null;
+    let description: string | null = null;
+    let imageUrl: string | null = null;
+    let platform: string | null = null;
+    let osVersion: string | null = null;
+    let deviceName: string | null = null;
+    let appVersion: string | null = null;
+    let wpUserId: string | null = null;
+    let email: string | null = null;
+    let name: string | null = null;
+
+    const contentType = request.headers.get('content-type') || '';
+
+    if (contentType.includes('multipart/form-data')) {
+      // Handle multipart/form-data (image file + fields)
+      const formData = await request.formData();
+
+      title = formData.get('title') as string | null;
+      description = formData.get('description') as string | null;
+      platform = formData.get('platform') as string | null;
+      osVersion = formData.get('osVersion') as string | null;
+      deviceName = formData.get('deviceName') as string | null;
+      appVersion = formData.get('appVersion') as string | null;
+      wpUserId = formData.get('wpUserId') as string | null;
+      email = formData.get('email') as string | null;
+      name = formData.get('name') as string | null;
+
+      // Handle image file upload
+      const imageFile = formData.get('image');
+
+      if (imageFile && imageFile instanceof File && imageFile.size > 0) {
+        // Validate file type
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        if (!allowedTypes.includes(imageFile.type)) {
+          return NextResponse.json(
+            { error: 'Invalid image type. Allowed: JPEG, PNG, GIF, WEBP' },
+            { status: 400 }
+          );
+        }
+
+        // Validate file size (max 10MB)
+        const maxSize = 10 * 1024 * 1024;
+        if (imageFile.size > maxSize) {
+          return NextResponse.json(
+            { error: 'Image too large. Maximum size is 10MB.' },
+            { status: 400 }
+          );
+        }
+
+        if (isCloudinaryConfigured()) {
+          const buffer = Buffer.from(await imageFile.arrayBuffer());
+          const timestamp = Date.now();
+          const filename = `bug-report-${timestamp}-${imageFile.name}`;
+          const result = await uploadToCloudinary(buffer, filename, 'ahc-bug-reports');
+          imageUrl = result.secure_url;
+        } else {
+          console.warn('Cloudinary not configured, skipping image upload');
+        }
+      } else if (typeof imageFile === 'string' && imageFile) {
+        // Image sent as URL string in form data
+        imageUrl = imageFile;
+      }
+    } else {
+      // Handle JSON body
+      const body = await request.json();
+      title = body.title;
+      description = body.description;
+      imageUrl = body.image || null;
+      platform = body.platform || null;
+      osVersion = body.osVersion || null;
+      deviceName = body.deviceName || null;
+      appVersion = body.appVersion || null;
+      wpUserId = body.wpUserId || null;
+      email = body.email || null;
+      name = body.name || null;
+    }
 
     // Validate required fields
     if (!title || !description) {
@@ -143,7 +210,7 @@ export async function POST(request: NextRequest) {
       data: {
         title: title.trim(),
         description: description.trim(),
-        image: image || null,
+        image: imageUrl,
         platform: platform || null,
         osVersion: osVersion || null,
         deviceName: deviceName || null,
