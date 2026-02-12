@@ -112,6 +112,29 @@ export async function POST(request: NextRequest) {
     const ALLOWED_NOTIFICATION_STATUSES = ['processing', 'completed'];
     if (!ALLOWED_NOTIFICATION_STATUSES.includes(orderStatus.toLowerCase())) {
       console.log('Skipping notification for status:', orderStatus);
+
+      // Log non-allowed statuses too so dedup can track status transitions accurately
+      // (e.g., processing → approved → processing should send notification twice)
+      try {
+        await prisma.webhookLog.create({
+          data: {
+            source: 'woocommerce',
+            event: 'order_status',
+            resourceId: String(orderId),
+            status: orderStatus,
+            customerEmail: customerEmail || null,
+            notificationTitle: null,
+            notificationBody: null,
+            pushSent: false,
+            pushSuccess: false,
+            pushError: 'Notification skipped - status not in allowed list',
+            payload: body,
+          },
+        });
+      } catch (dbError) {
+        console.log('DB log creation for skipped status failed');
+      }
+
       return NextResponse.json({
         success: true,
         message: `Notification skipped for status: ${orderStatus}`,
