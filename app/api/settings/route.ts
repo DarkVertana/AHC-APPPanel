@@ -67,6 +67,7 @@ export async function PUT(request: NextRequest) {
       fcmServerKey,
       fcmProjectId,
       customApiKey,
+      intercomJwtSecret,
       maintenanceMode,
       maintenanceMessage,
       orderProcessingTitle,
@@ -87,6 +88,7 @@ export async function PUT(request: NextRequest) {
     if (fcmServerKey !== undefined) updateData.fcmServerKey = fcmServerKey;
     if (fcmProjectId !== undefined) updateData.fcmProjectId = fcmProjectId;
     if (customApiKey !== undefined) updateData.customApiKey = customApiKey;
+    if (intercomJwtSecret !== undefined) updateData.intercomJwtSecret = intercomJwtSecret;
     if (maintenanceMode !== undefined) updateData.maintenanceMode = maintenanceMode;
     if (maintenanceMessage !== undefined) updateData.maintenanceMessage = maintenanceMessage;
     if (orderProcessingTitle !== undefined) updateData.orderProcessingTitle = orderProcessingTitle || null;

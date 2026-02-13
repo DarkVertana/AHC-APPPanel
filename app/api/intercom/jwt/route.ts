@@ -1,22 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { validateApiKey } from '@/lib/middleware';
+import { prisma } from '@/lib/prisma';
 
 /**
- * Intercom User Hash Endpoint
+ * Intercom JWT Endpoint
  *
- * This endpoint generates an HMAC-SHA256 hash for Intercom Identity Verification.
- * Intercom uses HMAC, not JWT, for identity verification.
+ * Generates a signed JWT for Intercom Identity Verification.
  *
  * Request Body:
- * - user_id: string (required) - The unique identifier for the user
+ * - user_id: string (required)
+ * - email: string (optional)
  *
  * Security:
  * - Requires valid API key in request headers
- * - API key can be sent as 'X-API-Key' header or 'Authorization: Bearer <key>'
  *
  * Response:
- * - hash: string - The HMAC-SHA256 hash for Intercom identity verification
+ * - token: string - The signed JWT (expires in 1 hour)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -44,11 +44,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get Intercom Identity Verification Secret from environment
-    const intercomSecret = process.env.INTERCOM_IDENTITY_VERIFICATION_SECRET;
+    // Get Intercom JWT Secret from settings
+    const settings = await prisma.settings.findUnique({
+      where: { id: 'settings' },
+      select: { intercomJwtSecret: true },
+    });
+
+    const intercomSecret = settings?.intercomJwtSecret;
 
     if (!intercomSecret) {
-      console.error('INTERCOM_IDENTITY_VERIFICATION_SECRET is not configured');
+      console.error('Intercom JWT secret is not configured in settings');
       return NextResponse.json(
         { error: 'Intercom identity verification is not configured' },
         { status: 500 }
@@ -57,7 +62,7 @@ export async function POST(request: NextRequest) {
 
     // Parse request body
     const body = await request.json();
-    const { user_id } = body;
+    const { user_id, email } = body;
 
     // Validate required fields
     if (!user_id) {
@@ -67,19 +72,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate HMAC-SHA256 hash for Intercom identity verification
-    const hash = crypto
-      .createHmac('sha256', intercomSecret)
-      .update(String(user_id))
-      .digest('hex');
+    // Build JWT payload
+    const payload: Record<string, string> = {
+      user_id: String(user_id),
+    };
+    if (email) {
+      payload.email = String(email);
+    }
 
-    return NextResponse.json({ hash });
+    // Sign JWT with 1 hour expiry
+    const token = jwt.sign(payload, intercomSecret, { expiresIn: '1h' });
+
+    return NextResponse.json({ token });
   } catch (error) {
-    console.error('Intercom hash generation error:', error);
+    console.error('Intercom JWT generation error:', error);
 
     const errorMessage = process.env.NODE_ENV === 'development' && error instanceof Error
       ? error.message
-      : 'An error occurred while generating Intercom hash';
+      : 'An error occurred while generating Intercom JWT';
 
     return NextResponse.json(
       {

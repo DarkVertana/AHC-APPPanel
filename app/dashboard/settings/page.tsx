@@ -257,6 +257,9 @@ export default function SettingsPage() {
     // Custom API Key
     customApiKey: '',
 
+    // Intercom Settings
+    intercomJwtSecret: '',
+
     // Custom Notification Messages
     orderProcessingTitle: '',
     orderProcessingBody: '',
@@ -287,6 +290,7 @@ export default function SettingsPage() {
             fcmServerKey: data.fcmServerKey || '',
             fcmProjectId: data.fcmProjectId || '',
             customApiKey: data.customApiKey || '',
+            intercomJwtSecret: data.intercomJwtSecret || '',
             orderProcessingTitle: data.orderProcessingTitle || '',
             orderProcessingBody: data.orderProcessingBody || '',
             orderCompletedTitle: data.orderCompletedTitle || '',
@@ -478,6 +482,7 @@ export default function SettingsPage() {
         fcmServerKey: '',
         fcmProjectId: '',
         customApiKey: prev.customApiKey, // Preserve custom API key
+        intercomJwtSecret: prev.intercomJwtSecret, // Preserve intercom secret
         orderProcessingTitle: '',
         orderProcessingBody: '',
         orderCompletedTitle: '',
@@ -1668,6 +1673,38 @@ export default function SettingsPage() {
                   <li>For production, always use environment variables for security</li>
                 </ul>
               </div>
+            </div>
+          </div>
+
+          {/* Intercom Identity Verification */}
+          <div className="mt-8 pt-6 border-t border-[#dfedfb]">
+            <h5 className="text-base font-semibold text-[#435970] mb-4">Intercom Identity Verification</h5>
+            <p className="text-xs text-[#7895b3] mb-4">Configure the secret key used to sign JWTs for Intercom identity verification in the mobile app.</p>
+
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="intercomJwtSecret" className="block text-sm font-medium text-[#435970] mb-2">
+                  Intercom JWT Secret
+                </label>
+                <input
+                  type="password"
+                  id="intercomJwtSecret"
+                  value={settings.intercomJwtSecret}
+                  onChange={(e) => handleInputChange('intercomJwtSecret', e.target.value)}
+                  className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] placeholder:text-[#7895b3]"
+                  placeholder="Your Intercom Identity Verification secret"
+                />
+                <p className="text-xs text-[#7895b3] mt-1">The secret key from Intercom used to sign identity verification JWTs</p>
+              </div>
+            </div>
+
+            <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-blue-800 font-medium mb-2">How to get your Intercom secret:</p>
+              <ol className="text-xs text-blue-700 list-decimal list-inside space-y-1">
+                <li>Go to Intercom Settings → Security → Identity Verification</li>
+                <li>Enable identity verification for your platform</li>
+                <li>Copy the secret key and paste it here</li>
+              </ol>
             </div>
           </div>
           </div>

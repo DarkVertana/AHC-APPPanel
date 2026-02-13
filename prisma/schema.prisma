@@ -69,6 +69,9 @@ model Settings {
   // Custom API Key (for panel reset recovery - plain text, admin-managed)
   customApiKey String?
 
+  // Intercom Settings
+  intercomJwtSecret String? // Secret key for signing Intercom identity verification JWTs
+
   // Custom Notification Messages (for WooCommerce webhooks)
   // Use {orderNumber} as placeholder for the order/subscription number
   orderProcessingTitle String?
