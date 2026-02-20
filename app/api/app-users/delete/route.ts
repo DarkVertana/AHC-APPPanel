@@ -3,23 +3,18 @@ import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
 
 /**
- * Delete App User Endpoint
- * 
- * This endpoint deletes an app user and all associated data:
- * - Weight logs (cascade delete)
- * - Medication logs (cascade delete)
- * - All other user-related data
- * 
+ * Delete App User Endpoint (Request-Based Flow)
+ *
+ * Instead of immediately deleting the user, this creates an AccountDeletionRequest.
+ * The request will auto-delete the user after 24 hours unless an admin puts it on hold.
+ *
  * Query Parameters:
  * - wpUserId: WordPress user ID (required if email not provided)
  * - email: User email (required if wpUserId not provided)
- * 
+ * - reason: Optional reason for deletion
+ *
  * Security:
  * - Requires valid API key in request headers
- * - API key can be sent as 'X-API-Key' header or 'Authorization: Bearer <key>'
- * 
- * Note: This is a destructive operation. All user data including weight logs
- * and medication logs will be permanently deleted.
  */
 export async function DELETE(request: NextRequest) {
   try {
@@ -34,7 +29,7 @@ export async function DELETE(request: NextRequest) {
         { status: 500 }
       );
     }
-    
+
     if (!apiKey) {
       return NextResponse.json(
         { error: 'Unauthorized. Valid API key required.' },
@@ -46,6 +41,7 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const wpUserId = searchParams.get('wpUserId');
     const email = searchParams.get('email');
+    const reason = searchParams.get('reason');
 
     // Validate that at least one identifier is provided
     if (!wpUserId && !email) {
@@ -60,29 +56,13 @@ export async function DELETE(request: NextRequest) {
     if (wpUserId) {
       user = await prisma.appUser.findUnique({
         where: { wpUserId: String(wpUserId) },
-        include: {
-          weightLogs: {
-            select: { id: true },
-          },
-          medicationLogs: {
-            select: { id: true },
-          },
-        },
       });
     }
-    
+
     // If user not found by wpUserId and email is provided, try email
     if (!user && email) {
       user = await prisma.appUser.findFirst({
         where: { email: email.toLowerCase().trim() },
-        include: {
-          weightLogs: {
-            select: { id: true },
-          },
-          medicationLogs: {
-            select: { id: true },
-          },
-        },
       });
     }
 
@@ -93,35 +73,48 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Count related records before deletion for response
-    const weightLogCount = user.weightLogs.length;
-    const medicationLogCount = user.medicationLogs.length;
+    // Check for existing pending or on_hold request (idempotent)
+    const existingRequest = await prisma.accountDeletionRequest.findFirst({
+      where: {
+        appUserId: user.id,
+        status: { in: ['pending', 'on_hold'] },
+      },
+    });
 
-    // Delete the user (cascade will automatically delete weight logs and medication logs)
-    await prisma.appUser.delete({
-      where: { id: user.id },
+    if (existingRequest) {
+      return NextResponse.json({
+        success: true,
+        message: 'Deletion request already exists',
+        deletionRequest: existingRequest,
+      });
+    }
+
+    // Create new deletion request with 24-hour auto-delete window
+    const now = new Date();
+    const autoDeleteAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // +24 hours
+
+    const deletionRequest = await prisma.accountDeletionRequest.create({
+      data: {
+        appUserId: user.id,
+        reason: reason || null,
+        requestedAt: now,
+        autoDeleteAt,
+      },
     });
 
     return NextResponse.json({
       success: true,
-      message: 'User and all associated data deleted successfully',
-      deleted: {
-        userId: user.id,
-        wpUserId: user.wpUserId,
-        email: user.email,
-        weightLogs: weightLogCount,
-        medicationLogs: medicationLogCount,
-      },
+      message: 'Account deletion requested. Will be processed in 24 hours unless held by admin.',
+      deletionRequest,
     });
   } catch (error) {
     console.error('Delete app user error:', error);
     return NextResponse.json(
-      { 
-        error: 'An error occurred while deleting user',
+      {
+        error: 'An error occurred while processing deletion request',
         details: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.message : 'Unknown error') : undefined
       },
       { status: 500 }
     );
   }
 }
-

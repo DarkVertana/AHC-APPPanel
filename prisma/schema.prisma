@@ -170,12 +170,13 @@ model AppUser {
   woocommerceCustomerId Int? // Cached WooCommerce customer ID for faster API lookups
 
   // Relations
-  weightLogs             WeightLog[]
-  medicationLogs         MedicationLog[]
-  notificationViews      NotificationView[]
-  dailyCheckIns          DailyCheckIn[]
-  scheduledNotifications ScheduledNotification[]
-  bugReports             BugReport[]
+  weightLogs              WeightLog[]
+  medicationLogs          MedicationLog[]
+  notificationViews       NotificationView[]
+  dailyCheckIns           DailyCheckIn[]
+  scheduledNotifications  ScheduledNotification[]
+  bugReports              BugReport[]
+  accountDeletionRequests AccountDeletionRequest[]
 
   // Timestamps
   createdAt DateTime @default(now())
@@ -531,4 +532,26 @@ model BugReport {
   @@index([status])
   @@index([createdAt])
   @@map("bug_reports")
+}
+
+model AccountDeletionRequest {
+  id           String    @id @default(cuid())
+  appUserId    String
+  status       String    @default("pending") // "pending" | "on_hold" | "deleted"
+  reason       String?   // Optional reason from the user
+  requestedAt  DateTime  @default(now())
+  resolvedAt   DateTime? // When admin took action or auto-delete occurred
+  autoDeleteAt DateTime  // requestedAt + 24 hours
+
+  // Relations
+  appUser AppUser @relation(fields: [appUserId], references: [id], onDelete: Cascade)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([appUserId])
+  @@index([status])
+  @@index([autoDeleteAt])
+  @@map("account_deletion_requests")
 }
