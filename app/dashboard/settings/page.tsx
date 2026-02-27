@@ -384,14 +384,15 @@ export default function SettingsPage() {
           const response = await fetch('/api/languages');
           if (response.ok) {
             const data = await response.json();
-            setLanguages(data.map((lang: any) => ({
+            const langs = data.languages || [];
+            setLanguages(langs.map((lang: any) => ({
               id: lang.id,
               code: lang.code,
               name: lang.name,
-              nativeName: lang.nativeName,
+              nativeName: lang.nativeName || '',
               isActive: lang.isActive,
-              isDefault: lang.isDefault || false,
-              createdAt: new Date(lang.createdAt).toISOString().split('T')[0],
+              isDefault: false,
+              createdAt: lang.createdAt ? new Date(lang.createdAt).toISOString().split('T')[0] : '',
             })));
           }
         } catch (error) {
@@ -438,12 +439,13 @@ export default function SettingsPage() {
         });
 
         if (response.ok) {
-          const updated = await response.json();
+          const data = await response.json();
+          const updated = data.language || data;
           setLanguages(prev => prev.map(lang => lang.id === editingLanguage.id ? {
             ...lang,
             code: updated.code,
             name: updated.name,
-            nativeName: updated.nativeName,
+            nativeName: updated.nativeName || '',
           } : lang));
           handleCloseLanguageModal();
           alert('Language updated successfully!');
@@ -460,15 +462,16 @@ export default function SettingsPage() {
         });
 
         if (response.ok) {
-          const newLang = await response.json();
+          const data = await response.json();
+          const newLang = data.language || data;
           setLanguages(prev => [...prev, {
             id: newLang.id,
             code: newLang.code,
             name: newLang.name,
-            nativeName: newLang.nativeName,
-            isActive: newLang.isActive,
-            isDefault: newLang.isDefault || false,
-            createdAt: new Date(newLang.createdAt).toISOString().split('T')[0],
+            nativeName: newLang.nativeName || '',
+            isActive: newLang.isActive ?? true,
+            isDefault: false,
+            createdAt: newLang.createdAt ? new Date(newLang.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
           }]);
           handleCloseLanguageModal();
           alert('Language added successfully!');
