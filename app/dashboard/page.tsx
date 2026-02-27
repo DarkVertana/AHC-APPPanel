@@ -39,12 +39,29 @@ type DashboardData = {
   };
 };
 
+type DeviceTypeEntry = {
+  type: string;
+  count: number;
+  platform: string;
+};
+
+type DeviceAnalytics = {
+  totalDevices: number;
+  totalUsersWithDevices: number;
+  byDeviceType: DeviceTypeEntry[];
+  byPlatform: {
+    ios: { devices: number; users: number };
+    android: { devices: number; users: number };
+  };
+};
+
 const COLORS = ['#435970', '#7895b3', '#dfedfb', '#93b7d8'];
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<DashboardData | null>(null);
   const [chartData, setChartData] = useState<any[]>([]);
+  const [deviceData, setDeviceData] = useState<DeviceAnalytics | null>(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -144,6 +161,14 @@ export default function DashboardPage() {
           { name: 'Blogs', value: blogsData.pagination.total, fill: COLORS[2] },
           { name: 'FAQs', value: faqsData.total, fill: COLORS[3] },
         ]);
+
+        // Fetch device analytics separately (non-blocking)
+        fetch('/api/analytics/devices', { credentials: 'include' })
+          .then(res => res.ok ? res.json() : null)
+          .then(deviceAnalytics => {
+            if (deviceAnalytics) setDeviceData(deviceAnalytics);
+          })
+          .catch(err => console.error('Error fetching device analytics:', err));
 
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
@@ -287,6 +312,93 @@ export default function DashboardPage() {
         </Link>
 
       </div>
+
+      {/* Device Statistics */}
+      {deviceData && (
+        <div className="bg-white rounded-lg p-6 border border-[#dfedfb]">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-gradient-to-br from-[#435970] to-[#7895b3] rounded-lg">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-[#435970]">User Devices</h3>
+                <p className="text-sm text-[#7895b3]">{deviceData.totalDevices} registered devices from {deviceData.totalUsersWithDevices} users</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-center px-4 py-2 bg-[#dfedfb]/50 rounded-lg">
+                <p className="text-lg font-bold text-[#435970]">{deviceData.byPlatform.ios.users}</p>
+                <p className="text-xs text-[#7895b3]">iOS Users</p>
+              </div>
+              <div className="text-center px-4 py-2 bg-[#dfedfb]/50 rounded-lg">
+                <p className="text-lg font-bold text-[#435970]">{deviceData.byPlatform.android.users}</p>
+                <p className="text-xs text-[#7895b3]">Android Users</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-[#dfedfb]">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-[#435970] uppercase tracking-wider">Device Type</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-[#435970] uppercase tracking-wider">Platform</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-[#435970] uppercase tracking-wider">Count</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-[#435970] uppercase tracking-wider">Share</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#dfedfb]">
+                {deviceData.byDeviceType.map((entry) => (
+                  <tr key={entry.type} className="hover:bg-[#dfedfb]/20 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-lg ${entry.platform === 'ios' ? 'bg-blue-50' : 'bg-green-50'}`}>
+                          {entry.platform === 'ios' ? (
+                            <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                            </svg>
+                          ) : (
+                            <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M17.523 15.342l1.592 2.756c.186.322.072.735-.25.921-.323.186-.735.072-.921-.25l-1.614-2.795c-1.206.534-2.544.83-3.951.83-1.406 0-2.745-.296-3.95-.83l-1.614 2.795c-.186.322-.599.436-.921.25-.322-.186-.436-.599-.25-.921l1.592-2.756C4.594 13.946 2.75 11.363 2.75 8.332h18.5c0 3.031-1.844 5.614-4.727 7.01zM7.5 11.332c-.552 0-1 .448-1 1s.448 1 1 1 1-.448 1-1-.448-1-1-1zm9 0c-.552 0-1 .448-1 1s.448 1 1 1 1-.448 1-1-.448-1-1-1zM15.607 2.368l1.346-1.346c.195-.195.195-.512 0-.707-.195-.195-.512-.195-.707 0l-1.483 1.483C13.845 1.322 12.836 1.082 12 1.082s-1.845.24-2.763.716L7.754.315c-.195-.195-.512-.195-.707 0-.195.195-.195.512 0 .707l1.346 1.346C6.676 3.55 5.75 5.787 5.75 8.332h12.5c0-2.545-.926-4.782-2.643-5.964z"/>
+                            </svg>
+                          )}
+                        </div>
+                        <span className="text-sm font-medium text-[#435970]">{entry.type}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                        entry.platform === 'ios' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                      }`}>
+                        {entry.platform === 'ios' ? 'iOS' : 'Android'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm font-semibold text-[#435970]">{entry.count}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <div className="w-24 bg-[#dfedfb] rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full ${entry.platform === 'ios' ? 'bg-blue-500' : 'bg-green-500'}`}
+                            style={{ width: `${deviceData.totalDevices > 0 ? (entry.count / deviceData.totalDevices) * 100 : 0}%` }}
+                          ></div>
+                        </div>
+                        <span className="text-xs text-[#7895b3]">
+                          {deviceData.totalDevices > 0 ? ((entry.count / deviceData.totalDevices) * 100).toFixed(1) : 0}%
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

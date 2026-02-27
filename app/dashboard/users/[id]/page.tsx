@@ -55,6 +55,16 @@ type WeightLog = {
   changeType: 'increase' | 'decrease' | 'no-change' | null;
 };
 
+type UserDevice = {
+  id: string;
+  deviceId: string;
+  platform: string;
+  deviceName: string | null;
+  appVersion: string | null;
+  lastActiveAt: string;
+  createdAt: string;
+};
+
 export default function UserDetailsPage() {
   useRouter();
   const params = useParams();
@@ -67,6 +77,8 @@ export default function UserDetailsPage() {
   const [checkInStreak, setCheckInStreak] = useState(0);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
+  const [userDevices, setUserDevices] = useState<UserDevice[]>([]);
+  const [loadingDevices, setLoadingDevices] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingCheckIns, setLoadingCheckIns] = useState(false);
   const [loadingWeightLogs, setLoadingWeightLogs] = useState(false);
@@ -115,6 +127,31 @@ export default function UserDetailsPage() {
       fetchUserDetails();
     }
   }, [userId]);
+
+  // Fetch devices for this user
+  useEffect(() => {
+    const fetchDevices = async () => {
+      if (!user) return;
+
+      try {
+        setLoadingDevices(true);
+        const response = await fetch(`/api/app-users/${user.id}/devices`, {
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setUserDevices(data.devices || []);
+        }
+      } catch (error) {
+        console.error('Error fetching user devices:', error);
+      } finally {
+        setLoadingDevices(false);
+      }
+    };
+
+    fetchDevices();
+  }, [user]);
 
   // Fetch daily check-ins for this user
   useEffect(() => {
@@ -388,6 +425,87 @@ export default function UserDetailsPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Registered Devices */}
+      <div className="bg-white rounded-lg border border-[#dfedfb] p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <h5 className="text-xl font-semibold text-[#435970]">Registered Devices</h5>
+            <span className="px-2 py-1 text-xs font-medium bg-[#dfedfb] text-[#435970] rounded-full">
+              {userDevices.length} device{userDevices.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+        </div>
+
+        {loadingDevices ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-[#435970]"></div>
+            <p className="ml-3 text-[#7895b3]">Loading devices...</p>
+          </div>
+        ) : userDevices.length === 0 ? (
+          <p className="text-sm text-[#7895b3] text-center py-8">
+            No registered devices found. Devices will appear here when the user logs in from the app.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {userDevices.map((device) => {
+              const name = (device.deviceName || '').toLowerCase();
+              const isIpad = name.includes('ipad');
+              const isIphone = device.platform === 'ios' && !isIpad;
+              const isAndroidTablet = device.platform === 'android' && (name.includes('tablet') || name.includes('tab') || name.includes('pad') || name.includes('sm-t') || name.includes('sm-x'));
+
+              let deviceLabel = 'Android Phone';
+              if (isIphone) deviceLabel = 'iPhone';
+              else if (isIpad) deviceLabel = 'iPad';
+              else if (isAndroidTablet) deviceLabel = 'Android Tablet';
+
+              return (
+                <div key={device.id} className="border border-[#dfedfb] rounded-lg p-4 hover:border-[#7895b3] transition-all">
+                  <div className="flex items-start gap-3">
+                    <div className={`p-2 rounded-lg ${device.platform === 'ios' ? 'bg-blue-50' : 'bg-green-50'}`}>
+                      {device.platform === 'ios' ? (
+                        <svg className="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                        </svg>
+                      ) : (
+                        <svg className="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M17.523 15.342l1.592 2.756c.186.322.072.735-.25.921-.323.186-.735.072-.921-.25l-1.614-2.795c-1.206.534-2.544.83-3.951.83-1.406 0-2.745-.296-3.95-.83l-1.614 2.795c-.186.322-.599.436-.921.25-.322-.186-.436-.599-.25-.921l1.592-2.756C4.594 13.946 2.75 11.363 2.75 8.332h18.5c0 3.031-1.844 5.614-4.727 7.01zM7.5 11.332c-.552 0-1 .448-1 1s.448 1 1 1 1-.448 1-1-.448-1-1-1zm9 0c-.552 0-1 .448-1 1s.448 1 1 1 1-.448 1-1-.448-1-1-1zM15.607 2.368l1.346-1.346c.195-.195.195-.512 0-.707-.195-.195-.512-.195-.707 0l-1.483 1.483C13.845 1.322 12.836 1.082 12 1.082s-1.845.24-2.763.716L7.754.315c-.195-.195-.512-.195-.707 0-.195.195-.195.512 0 .707l1.346 1.346C6.676 3.55 5.75 5.787 5.75 8.332h12.5c0-2.545-.926-4.782-2.643-5.964z"/>
+                        </svg>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-sm font-semibold text-[#435970] truncate">
+                          {device.deviceName || deviceLabel}
+                        </p>
+                        <span className={`flex-shrink-0 inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${
+                          device.platform === 'ios' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                        }`}>
+                          {deviceLabel}
+                        </span>
+                      </div>
+                      {device.appVersion && (
+                        <p className="text-xs text-[#7895b3] mb-1">App v{device.appVersion}</p>
+                      )}
+                      <p className="text-xs text-[#7895b3]">
+                        Last active: {new Date(device.lastActiveAt).toLocaleDateString('en-US', {
+                          month: 'short', day: 'numeric', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit',
+                        })}
+                      </p>
+                      <p className="text-xs text-[#7895b3]/60 mt-1">
+                        Registered: {new Date(device.createdAt).toLocaleDateString('en-US', {
+                          month: 'short', day: 'numeric', year: 'numeric',
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Medication Log Section - Calendar + List View */}
