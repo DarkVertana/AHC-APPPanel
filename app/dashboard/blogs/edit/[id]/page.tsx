@@ -7,6 +7,7 @@ import Link from 'next/link';
 import RichTextEditor from '@/app/components/RichTextEditor';
 import { getImageUrl } from '@/lib/image-utils';
 import NotificationModal from '@/app/components/NotificationModal';
+import TranslationEditor from '@/app/components/TranslationEditor';
 
 export default function EditBlogPage() {
   const router = useRouter();
@@ -351,6 +352,17 @@ export default function EditBlogPage() {
             </p>
           )}
         </div>
+
+        {/* Translations */}
+        <TranslationEditor
+          entityType="blog"
+          entityId={blogId || null}
+          translatableFields={[
+            { field: 'title', label: 'Title', type: 'text' },
+            { field: 'tagline', label: 'Tagline', type: 'text' },
+            { field: 'description', label: 'Description', type: 'richtext' },
+          ]}
+        />
 
         {/* Form Actions */}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">

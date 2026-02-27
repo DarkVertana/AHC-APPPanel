@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
 import { getIconCodepoint } from '@/lib/material-icons';
+import { getLocaleFromRequest, applyTranslation, applyTranslationsBatch } from '@/lib/translations';
 
 /**
  * Public Medicine Categories API Endpoint for Mobile App
@@ -46,6 +47,7 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100); // Max 100 per page
     const skip = (page - 1) * limit;
+    const locale = getLocaleFromRequest(request);
 
     // If requesting a single category by ID
     if (categoryId) {
@@ -73,12 +75,16 @@ export async function GET(request: NextRequest) {
         );
       }
 
+      // Apply translations
+      const tCat = await applyTranslation(category as any, 'medicine_category', String(category.id), locale);
+
       return NextResponse.json({
         success: true,
+        locale,
         category: {
           id: category.id,
-          title: category.title,
-          tagline: category.tagline,
+          title: tCat.title,
+          tagline: tCat.tagline,
           icon: category.icon,
           iconType: category.icon ? 'material_icon' : null,
           iconCodepoint: category.icon ? `0x${getIconCodepoint(category.icon)}` : null,
@@ -115,19 +121,26 @@ export async function GET(request: NextRequest) {
       prisma.medicineCategory.count({ where }),
     ]);
 
+    // Apply translations
+    const tCats = await applyTranslationsBatch(categories as any[], 'medicine_category', 'id', locale);
+
     return NextResponse.json({
       success: true,
-      categories: categories.map(cat => ({
-        id: cat.id,
-        title: cat.title,
-        tagline: cat.tagline,
-        icon: cat.icon,
-        iconType: cat.icon ? 'material_icon' : null,
-        iconCodepoint: cat.icon ? `0x${getIconCodepoint(cat.icon)}` : null,
-        medicineCount: cat._count.medicines,
-        createdAt: cat.createdAt.toISOString(),
-        updatedAt: cat.updatedAt.toISOString(),
-      })),
+      locale,
+      categories: categories.map((cat, i) => {
+        const tCat = tCats[i];
+        return {
+          id: cat.id,
+          title: tCat.title,
+          tagline: tCat.tagline,
+          icon: cat.icon,
+          iconType: cat.icon ? 'material_icon' : null,
+          iconCodepoint: cat.icon ? `0x${getIconCodepoint(cat.icon)}` : null,
+          medicineCount: cat._count.medicines,
+          createdAt: cat.createdAt.toISOString(),
+          updatedAt: cat.updatedAt.toISOString(),
+        };
+      }),
       pagination: {
         page,
         limit,

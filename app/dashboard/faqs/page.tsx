@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import ConfirmModal from '@/app/components/ConfirmModal';
+import TranslationEditor from '@/app/components/TranslationEditor';
 
 type FAQ = {
   id: string;
@@ -36,6 +37,7 @@ export default function FAQsPage() {
   
   // Expanded FAQ for viewing full content
   const [expandedFaq, setExpandedFaq] = useState<string | null>(null);
+  const [pendingTranslations, setPendingTranslations] = useState<{locale: string; field: string; value: string}[]>([]);
 
   // Fetch FAQs
   const fetchFaqs = async () => {
@@ -110,6 +112,25 @@ export default function FAQsPage() {
       });
 
       if (response.ok) {
+        // Save pending translations for new FAQ
+        if (!editingFaq && pendingTranslations.length > 0) {
+          try {
+            const faqData = await response.json();
+            await fetch('/api/translations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                entityType: 'faq',
+                entityId: faqData.faq?.id || faqData.id,
+                translations: pendingTranslations,
+              }),
+            });
+          } catch (err) {
+            console.error('Failed to save translations:', err);
+          }
+        }
+        setPendingTranslations([]);
         setIsModalOpen(false);
         fetchFaqs();
       } else {
@@ -413,6 +434,17 @@ export default function FAQsPage() {
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#435970]/20 focus:border-[#435970] transition-all resize-none"
                 />
               </div>
+
+              {/* Translations */}
+              <TranslationEditor
+                entityType="faq"
+                entityId={editingFaq?.id || null}
+                translatableFields={[
+                  { field: 'question', label: 'Question', type: 'text' },
+                  { field: 'answer', label: 'Answer', type: 'textarea' },
+                ]}
+                onTranslationsChange={!editingFaq ? setPendingTranslations : undefined}
+              />
 
               {/* Order & Status */}
               <div className="grid grid-cols-2 gap-4">

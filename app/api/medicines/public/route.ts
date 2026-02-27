@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
 import { getImageUrl } from '@/lib/image-utils';
+import { getLocaleFromRequest, applyTranslation, applyTranslationsBatch } from '@/lib/translations';
 
 /**
  * Public Medicine API Endpoint for Mobile App
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = Math.min(parseInt(searchParams.get('limit') || '10'), 50); // Max 50 per page
     const skip = (page - 1) * limit;
+    const locale = getLocaleFromRequest(request);
 
     // If requesting a single medicine by ID
     if (medicineId) {
@@ -78,21 +80,26 @@ export async function GET(request: NextRequest) {
 
       // Get the request URL for generating absolute image URLs
       const requestUrl = request.url;
-      
+
+      // Apply translations
+      const tMed = await applyTranslation(medicine as any, 'medicine', medicine.id, locale);
+      const tCat = await applyTranslation(medicine.category as any, 'medicine_category', String(medicine.category.id), locale);
+
       return NextResponse.json({
         success: true,
+        locale,
         medicine: {
           id: medicine.id,
           categoryId: medicine.categoryId,
           category: {
             id: medicine.category.id,
-            title: medicine.category.title,
-            tagline: medicine.category.tagline,
+            title: tCat.title,
+            tagline: tCat.tagline,
             icon: getImageUrl(medicine.category.icon, requestUrl, true), // Force absolute URL for mobile
           },
-          title: medicine.title,
-          tagline: medicine.tagline,
-          description: medicine.description,
+          title: tMed.title,
+          tagline: tMed.tagline,
+          description: tMed.description,
           image: getImageUrl(medicine.image, requestUrl, true), // Force absolute URL for mobile
           url: medicine.url,
           price: medicine.price,
@@ -146,28 +153,46 @@ export async function GET(request: NextRequest) {
 
     // Get the request URL for generating absolute image URLs
     const requestUrl = request.url;
-    
+
+    // Apply translations to medicines
+    const tMeds = await applyTranslationsBatch(medicines as any[], 'medicine', 'id', locale);
+
+    // Translate unique categories
+    const uniqueCatsMap = new Map<number, any>();
+    for (const m of medicines) {
+      if (!uniqueCatsMap.has(m.category.id)) {
+        uniqueCatsMap.set(m.category.id, m.category);
+      }
+    }
+    const tCatsArr = await applyTranslationsBatch(Array.from(uniqueCatsMap.values()), 'medicine_category', 'id', locale);
+    const tCatMap = new Map(tCatsArr.map(c => [c.id, c]));
+
     return NextResponse.json({
       success: true,
-      medicines: medicines.map(medicine => ({
-        id: medicine.id,
-        categoryId: medicine.categoryId,
-        category: {
-          id: medicine.category.id,
-          title: medicine.category.title,
-          tagline: medicine.category.tagline,
-          icon: getImageUrl(medicine.category.icon, requestUrl, true), // Force absolute URL for mobile
-        },
-        title: medicine.title,
-        tagline: medicine.tagline,
-        description: medicine.description,
-        image: getImageUrl(medicine.image, requestUrl, true), // Force absolute URL for mobile
-        url: medicine.url,
-        price: medicine.price,
-        productType: medicine.productType,
-        createdAt: medicine.createdAt.toISOString(),
-        updatedAt: medicine.updatedAt.toISOString(),
-      })),
+      locale,
+      medicines: medicines.map((medicine, i) => {
+        const tMed = tMeds[i];
+        const tCat = tCatMap.get(medicine.category.id) || medicine.category;
+        return {
+          id: medicine.id,
+          categoryId: medicine.categoryId,
+          category: {
+            id: medicine.category.id,
+            title: tCat.title,
+            tagline: tCat.tagline,
+            icon: getImageUrl(medicine.category.icon, requestUrl, true), // Force absolute URL for mobile
+          },
+          title: tMed.title,
+          tagline: tMed.tagline,
+          description: tMed.description,
+          image: getImageUrl(medicine.image, requestUrl, true), // Force absolute URL for mobile
+          url: medicine.url,
+          price: medicine.price,
+          productType: medicine.productType,
+          createdAt: medicine.createdAt.toISOString(),
+          updatedAt: medicine.updatedAt.toISOString(),
+        };
+      }),
       pagination: {
         page,
         limit,

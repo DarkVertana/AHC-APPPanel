@@ -566,3 +566,34 @@ model AccountDeletionRequest {
   @@index([autoDeleteAt])
   @@map("account_deletion_requests")
 }
+
+model SupportedLanguage {
+  id         String  @id @default(cuid())
+  code       String  @unique // ISO 639-1: 'es', 'fr', 'hi', etc.
+  name       String // Display name: 'Spanish', 'French'
+  nativeName String? // Native name: 'Espanol', 'Francais'
+  isActive   Boolean @default(true)
+  order      Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("supported_languages")
+}
+
+model Translation {
+  id         String @id @default(cuid())
+  entityType String // 'medicine' | 'medicine_category' | 'blog' | 'faq'
+  entityId   String // ID of the entity
+  locale     String // 'es', 'fr', etc.
+  field      String // 'title', 'tagline', 'description', 'question', 'answer'
+  value      String @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([entityType, entityId, locale, field])
+  @@index([entityType, entityId, locale])
+  @@map("translations")
+}

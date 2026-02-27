@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
 import { getImageUrl } from '@/lib/image-utils';
+import { getLocaleFromRequest, applyTranslation, applyTranslationsBatch } from '@/lib/translations';
 
 /**
  * Public Blog API Endpoint for Mobile App
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = Math.min(parseInt(searchParams.get('limit') || '10'), 50); // Max 50 per page
     const skip = (page - 1) * limit;
+    const locale = getLocaleFromRequest(request);
 
     // If requesting a single blog by ID
     if (blogId) {
@@ -68,14 +70,18 @@ export async function GET(request: NextRequest) {
 
       // Get the request URL for generating absolute image URLs
       const requestUrl = request.url;
-      
+
+      // Apply translations
+      const tBlog = await applyTranslation(blog as any, 'blog', blog.id, locale);
+
       return NextResponse.json({
         success: true,
+        locale,
         blog: {
           id: blog.id,
-          title: blog.title,
-          tagline: blog.tagline,
-          description: blog.description,
+          title: tBlog.title,
+          tagline: tBlog.tagline,
+          description: tBlog.description,
           tags: blog.tags,
           featuredImage: getImageUrl(blog.featuredImage, requestUrl, true), // Force absolute URL for mobile
           createdAt: blog.createdAt.toISOString(),
@@ -126,18 +132,25 @@ export async function GET(request: NextRequest) {
     // Get the request URL for generating absolute image URLs
     const requestUrl = request.url;
 
+    // Apply translations
+    const tBlogs = await applyTranslationsBatch(blogs as any[], 'blog', 'id', locale);
+
     // Return only required fields per API_PAYLOAD_REQUIREMENTS.md (Section 11)
     // List: id, title, tagline, featuredImage, createdAt, tags
     return NextResponse.json({
       success: true,
-      blogs: blogs.map(blog => ({
-        id: blog.id,
-        title: blog.title,
-        tagline: blog.tagline,
-        featuredImage: getImageUrl(blog.featuredImage, requestUrl, true), // Force absolute URL for mobile
-        createdAt: blog.createdAt.toISOString(),
-        tags: blog.tags,
-      })),
+      locale,
+      blogs: blogs.map((blog, i) => {
+        const tBlog = tBlogs[i];
+        return {
+          id: blog.id,
+          title: tBlog.title,
+          tagline: tBlog.tagline,
+          featuredImage: getImageUrl(blog.featuredImage, requestUrl, true), // Force absolute URL for mobile
+          createdAt: blog.createdAt.toISOString(),
+          tags: blog.tags,
+        };
+      }),
       pagination: {
         page,
         limit,

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import ConfirmModal from '@/app/components/ConfirmModal';
 import NotificationModal from '@/app/components/NotificationModal';
 import MaterialIconPicker from '@/app/components/MaterialIconPicker';
+import TranslationEditor from '@/app/components/TranslationEditor';
 
 type Category = {
   id: number;
@@ -31,6 +32,7 @@ export default function CategoryPage() {
   const [notification, setNotification] = useState<{ title: string; message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<Set<number>>(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [pendingTranslations, setPendingTranslations] = useState<{locale: string; field: string; value: string}[]>([]);
 
   // Fetch categories from API
   useEffect(() => {
@@ -262,6 +264,24 @@ export default function CategoryPage() {
           tagline: data.category.tagline,
           icon: data.category.icon,
         }]);
+
+        // Save pending translations for new entity
+        if (pendingTranslations.length > 0) {
+          try {
+            await fetch('/api/translations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                entityType: 'medicine_category',
+                entityId: data.category.id.toString(),
+                translations: pendingTranslations,
+              }),
+            });
+          } catch (err) {
+            console.error('Failed to save translations:', err);
+          }
+        }
       }
 
       setIsModalOpen(false);
@@ -293,6 +313,7 @@ export default function CategoryPage() {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingCategory(null);
+    setPendingTranslations([]);
     setFormData({
       title: '',
       tagline: '',
@@ -550,6 +571,17 @@ export default function CategoryPage() {
                 selectedIcon={formData.icon || null}
                 onSelectIcon={(name) => setFormData({ ...formData, icon: name })}
                 onClearIcon={() => setFormData({ ...formData, icon: '' })}
+              />
+
+              {/* Translations */}
+              <TranslationEditor
+                entityType="medicine_category"
+                entityId={editingCategory?.id?.toString() || null}
+                translatableFields={[
+                  { field: 'title', label: 'Title', type: 'text' },
+                  { field: 'tagline', label: 'Tagline', type: 'text' },
+                ]}
+                onTranslationsChange={!editingCategory ? setPendingTranslations : undefined}
               />
 
               {/* Form Actions */}

@@ -11,6 +11,16 @@ type ApiKey = {
   lastUsed: string | null;
 };
 
+type Language = {
+  id: string;
+  code: string;
+  name: string;
+  nativeName: string;
+  isActive: boolean;
+  isDefault: boolean;
+  createdAt: string;
+};
+
 export default function SettingsPage() {
   const { data: session } = useSession();
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -35,6 +45,14 @@ export default function SettingsPage() {
   const [showPasswordFields, setShowPasswordFields] = useState(false);
   const [showCustomApiKey, setShowCustomApiKey] = useState(false);
   const [isSavingCustomApiKey, setIsSavingCustomApiKey] = useState(false);
+
+  // Language states
+  const [languages, setLanguages] = useState<Language[]>([]);
+  const [isLanguageModalOpen, setIsLanguageModalOpen] = useState(false);
+  const [editingLanguage, setEditingLanguage] = useState<Language | null>(null);
+  const [languageForm, setLanguageForm] = useState({ code: '', name: '', nativeName: '' });
+  const [isSavingLanguage, setIsSavingLanguage] = useState(false);
+  const [isLoadingLanguages, setIsLoadingLanguages] = useState(false);
 
   const handleCreateApiKey = async () => {
     if (!newApiKeyName.trim()) {
@@ -357,6 +375,157 @@ export default function SettingsPage() {
     }
   }, [activeTab]);
 
+  // Fetch languages when tab changes
+  useEffect(() => {
+    if (activeTab === 'languages') {
+      const fetchLanguages = async () => {
+        setIsLoadingLanguages(true);
+        try {
+          const response = await fetch('/api/languages');
+          if (response.ok) {
+            const data = await response.json();
+            setLanguages(data.map((lang: any) => ({
+              id: lang.id,
+              code: lang.code,
+              name: lang.name,
+              nativeName: lang.nativeName,
+              isActive: lang.isActive,
+              isDefault: lang.isDefault || false,
+              createdAt: new Date(lang.createdAt).toISOString().split('T')[0],
+            })));
+          }
+        } catch (error) {
+          console.error('Error fetching languages:', error);
+        } finally {
+          setIsLoadingLanguages(false);
+        }
+      };
+      fetchLanguages();
+    }
+  }, [activeTab]);
+
+  const handleOpenLanguageModal = (language?: Language) => {
+    if (language) {
+      setEditingLanguage(language);
+      setLanguageForm({ code: language.code, name: language.name, nativeName: language.nativeName });
+    } else {
+      setEditingLanguage(null);
+      setLanguageForm({ code: '', name: '', nativeName: '' });
+    }
+    setIsLanguageModalOpen(true);
+  };
+
+  const handleCloseLanguageModal = () => {
+    setIsLanguageModalOpen(false);
+    setEditingLanguage(null);
+    setLanguageForm({ code: '', name: '', nativeName: '' });
+  };
+
+  const handleSaveLanguage = async () => {
+    if (!languageForm.code.trim() || !languageForm.name.trim() || !languageForm.nativeName.trim()) {
+      alert('Please fill in all fields');
+      return;
+    }
+
+    setIsSavingLanguage(true);
+    try {
+      if (editingLanguage) {
+        // Update existing language
+        const response = await fetch(`/api/languages/${editingLanguage.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(languageForm),
+        });
+
+        if (response.ok) {
+          const updated = await response.json();
+          setLanguages(prev => prev.map(lang => lang.id === editingLanguage.id ? {
+            ...lang,
+            code: updated.code,
+            name: updated.name,
+            nativeName: updated.nativeName,
+          } : lang));
+          handleCloseLanguageModal();
+          alert('Language updated successfully!');
+        } else {
+          const error = await response.json();
+          alert(error.error || 'Failed to update language');
+        }
+      } else {
+        // Create new language
+        const response = await fetch('/api/languages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(languageForm),
+        });
+
+        if (response.ok) {
+          const newLang = await response.json();
+          setLanguages(prev => [...prev, {
+            id: newLang.id,
+            code: newLang.code,
+            name: newLang.name,
+            nativeName: newLang.nativeName,
+            isActive: newLang.isActive,
+            isDefault: newLang.isDefault || false,
+            createdAt: new Date(newLang.createdAt).toISOString().split('T')[0],
+          }]);
+          handleCloseLanguageModal();
+          alert('Language added successfully!');
+        } else {
+          const error = await response.json();
+          alert(error.error || 'Failed to add language');
+        }
+      }
+    } catch (error) {
+      console.error('Error saving language:', error);
+      alert('An error occurred while saving the language');
+    } finally {
+      setIsSavingLanguage(false);
+    }
+  };
+
+  const handleToggleLanguageActive = async (language: Language) => {
+    try {
+      const response = await fetch(`/api/languages/${language.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: !language.isActive }),
+      });
+
+      if (response.ok) {
+        setLanguages(prev => prev.map(lang => lang.id === language.id ? { ...lang, isActive: !lang.isActive } : lang));
+      } else {
+        const error = await response.json();
+        alert(error.error || 'Failed to toggle language status');
+      }
+    } catch (error) {
+      console.error('Error toggling language:', error);
+      alert('An error occurred while updating language status');
+    }
+  };
+
+  const handleDeleteLanguage = async (id: string) => {
+    if (confirm('Are you sure you want to delete this language? This action cannot be undone.')) {
+      try {
+        const response = await fetch(`/api/languages/${id}`, {
+          method: 'DELETE',
+        });
+
+        if (response.ok) {
+          setLanguages(prev => prev.filter(lang => lang.id !== id));
+          alert('Language deleted successfully');
+        } else {
+          const error = await response.json();
+          alert(error.error || 'Failed to delete language');
+        }
+      } catch (error) {
+        console.error('Error deleting language:', error);
+        alert('An error occurred while deleting the language');
+      }
+    }
+  };
+
   const handleInputChange = (field: string, value: any) => {
     setSettings(prev => ({ ...prev, [field]: value }));
   };
@@ -623,6 +792,7 @@ export default function SettingsPage() {
     { id: 'woocommerce', name: 'WooCommerce', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z' },
     { id: 'notifications', name: 'Notifications', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' },
     { id: 'backup', name: 'Backup & Restore', icon: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12' },
+    { id: 'languages', name: 'Languages', icon: 'M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129' },
   ];
 
   return (
@@ -1824,6 +1994,222 @@ export default function SettingsPage() {
                   <p className="text-sm text-[#7895b3] ml-4">
                     {(settings.orderCompletedBody || 'Your order #{orderNumber} has been completed! Thank you for your purchase.').replace('{orderNumber}', '1234')}
                   </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Languages Tab */}
+        {activeTab === 'languages' && (
+          <div className="bg-white rounded-lg border border-[#dfedfb] p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="text-lg font-semibold text-[#435970]">Languages</h4>
+              <button
+                type="button"
+                onClick={() => handleOpenLanguageModal()}
+                className="px-4 py-2 bg-[#435970] text-white rounded-lg font-medium hover:bg-[#7895b3] transition-colors flex items-center gap-2 text-sm"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add Language
+              </button>
+            </div>
+
+            <p className="text-sm text-[#7895b3] mb-6">
+              Manage the languages available for your mobile app content. English is the default language and cannot be removed.
+            </p>
+
+            {isLoadingLanguages ? (
+              <div className="text-center py-12 text-[#7895b3]">
+                <svg className="animate-spin h-8 w-8 mx-auto mb-3 text-[#435970]" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p>Loading languages...</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-[#dfedfb]">
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-[#435970]">Code</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-[#435970]">Name</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-[#435970]">Native Name</th>
+                      <th className="text-center py-3 px-4 text-sm font-semibold text-[#435970]">Status</th>
+                      <th className="text-right py-3 px-4 text-sm font-semibold text-[#435970]">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* English default row */}
+                    <tr className="border-b border-[#dfedfb] bg-[#dfedfb]/20">
+                      <td className="py-3 px-4">
+                        <code className="text-sm font-mono bg-[#dfedfb] px-2 py-0.5 rounded text-[#435970]">en</code>
+                      </td>
+                      <td className="py-3 px-4 text-sm text-[#435970]">English</td>
+                      <td className="py-3 px-4 text-sm text-[#435970]">English</td>
+                      <td className="py-3 px-4 text-center">
+                        <span className="px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 rounded">Active</span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <span className="text-xs text-[#7895b3]">Default</span>
+                      </td>
+                    </tr>
+
+                    {/* Dynamic language rows */}
+                    {languages.filter(lang => !lang.isDefault).map((language) => (
+                      <tr key={language.id} className="border-b border-[#dfedfb] hover:bg-[#dfedfb]/10 transition-colors">
+                        <td className="py-3 px-4">
+                          <code className="text-sm font-mono bg-[#dfedfb] px-2 py-0.5 rounded text-[#435970]">{language.code}</code>
+                        </td>
+                        <td className="py-3 px-4 text-sm text-[#435970]">{language.name}</td>
+                        <td className="py-3 px-4 text-sm text-[#435970]">{language.nativeName}</td>
+                        <td className="py-3 px-4 text-center">
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={language.isActive}
+                              onChange={() => handleToggleLanguageActive(language)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[#7895b3] rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#435970]"></div>
+                          </label>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenLanguageModal(language)}
+                              className="p-1.5 text-[#7895b3] hover:text-[#435970] transition-colors"
+                              title="Edit language"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteLanguage(language.id)}
+                              className="p-1.5 text-red-500 hover:text-red-700 transition-colors"
+                              title="Delete language"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+
+                    {languages.filter(lang => !lang.isDefault).length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-[#7895b3]">
+                          <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                          </svg>
+                          <p>No additional languages configured</p>
+                          <p className="text-xs mt-1">Click &quot;Add Language&quot; to add a new language</p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Info Box */}
+            <div className="mt-6 bg-[#dfedfb]/50 rounded-lg p-4">
+              <p className="text-sm text-[#435970] font-medium mb-2">Language Management:</p>
+              <ul className="text-xs text-[#7895b3] list-disc list-inside space-y-1">
+                <li>English is the default language and is always active</li>
+                <li>Toggle languages on/off to control availability in the mobile app</li>
+                <li>Language codes should follow ISO 639-1 format (e.g., &quot;es&quot; for Spanish, &quot;fr&quot; for French)</li>
+                <li>The Native Name field shows the language name in its own script (e.g., &quot;Espanol&quot; for Spanish)</li>
+                <li>Deleting a language will also remove all associated translations</li>
+              </ul>
+            </div>
+          </div>
+        )}
+
+        {/* Add/Edit Language Modal */}
+        {isLanguageModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={handleCloseLanguageModal}>
+            <div className="bg-white rounded-lg max-w-md w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+              <div className="border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+                <h3 className="text-2xl font-bold text-[#435970]">
+                  {editingLanguage ? 'Edit Language' : 'Add Language'}
+                </h3>
+                <button
+                  onClick={handleCloseLanguageModal}
+                  className="text-[#7895b3] hover:text-[#435970] transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div>
+                  <label htmlFor="languageCode" className="block text-sm font-medium text-[#435970] mb-2">
+                    Language Code
+                  </label>
+                  <input
+                    type="text"
+                    id="languageCode"
+                    value={languageForm.code}
+                    onChange={(e) => setLanguageForm(prev => ({ ...prev, code: e.target.value.toLowerCase() }))}
+                    className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] placeholder:text-[#7895b3]"
+                    placeholder="e.g., es"
+                    maxLength={10}
+                  />
+                  <p className="text-xs text-[#7895b3] mt-1">ISO 639-1 language code (e.g., &quot;es&quot;, &quot;fr&quot;, &quot;de&quot;)</p>
+                </div>
+                <div>
+                  <label htmlFor="languageName" className="block text-sm font-medium text-[#435970] mb-2">
+                    Display Name
+                  </label>
+                  <input
+                    type="text"
+                    id="languageName"
+                    value={languageForm.name}
+                    onChange={(e) => setLanguageForm(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] placeholder:text-[#7895b3]"
+                    placeholder="e.g., Spanish"
+                  />
+                  <p className="text-xs text-[#7895b3] mt-1">The language name in English</p>
+                </div>
+                <div>
+                  <label htmlFor="languageNativeName" className="block text-sm font-medium text-[#435970] mb-2">
+                    Native Name
+                  </label>
+                  <input
+                    type="text"
+                    id="languageNativeName"
+                    value={languageForm.nativeName}
+                    onChange={(e) => setLanguageForm(prev => ({ ...prev, nativeName: e.target.value }))}
+                    className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] placeholder:text-[#7895b3]"
+                    placeholder="e.g., Espanol"
+                  />
+                  <p className="text-xs text-[#7895b3] mt-1">The language name in its own language</p>
+                </div>
+                <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+                  <button
+                    type="button"
+                    onClick={handleCloseLanguageModal}
+                    className="px-4 py-2 border border-[#dfedfb] text-[#435970] rounded-lg font-medium hover:bg-[#dfedfb] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveLanguage}
+                    disabled={isSavingLanguage || !languageForm.code.trim() || !languageForm.name.trim() || !languageForm.nativeName.trim()}
+                    className="px-6 py-2 bg-[#435970] text-white rounded-lg font-medium hover:bg-[#7895b3] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSavingLanguage ? 'Saving...' : (editingLanguage ? 'Update Language' : 'Add Language')}
+                  </button>
                 </div>
               </div>
             </div>

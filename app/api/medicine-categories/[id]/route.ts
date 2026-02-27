@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
 import { prisma } from '@/lib/prisma';
+import { deleteTranslationsForEntity } from '@/lib/translations';
 
 // GET single medicine category
 export async function GET(
@@ -234,10 +235,11 @@ export async function DELETE(
       );
     }
 
-    // Delete category
+    // Delete category and its translations
     await prisma.medicineCategory.delete({
       where: { id: categoryId },
     });
+    await deleteTranslationsForEntity('medicine_category', String(categoryId));
 
     return NextResponse.json({
       success: true,

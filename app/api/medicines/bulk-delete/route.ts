@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
 import { prisma } from '@/lib/prisma';
+import { deleteTranslationsForEntities } from '@/lib/translations';
 
 /**
  * Bulk Delete Medicines
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Delete medicines
+    // Delete medicines and their translations
     const result = await prisma.medicine.deleteMany({
       where: {
         id: {
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
         },
       },
     });
+    await deleteTranslationsForEntities('medicine', ids);
 
     return NextResponse.json({
       success: true,

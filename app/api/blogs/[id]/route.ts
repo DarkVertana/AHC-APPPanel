@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
 import { prisma } from '@/lib/prisma';
+import { deleteTranslationsForEntity } from '@/lib/translations';
 
 // GET single blog
 export async function GET(
@@ -149,10 +150,11 @@ export async function DELETE(
       );
     }
 
-    // Delete blog
+    // Delete blog and its translations
     await prisma.blog.delete({
       where: { id },
     });
+    await deleteTranslationsForEntity('blog', id);
 
     return NextResponse.json({
       success: true,

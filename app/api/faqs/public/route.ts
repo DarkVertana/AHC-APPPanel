@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { validateApiKey } from '@/lib/middleware';
+import { getLocaleFromRequest, applyTranslation, applyTranslationsBatch } from '@/lib/translations';
 
 /**
  * Public FAQ API Endpoint for Mobile App
@@ -46,6 +47,7 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = Math.min(parseInt(searchParams.get('limit') || '10'), 50); // Max 50 per page (matching blogs)
     const skip = (page - 1) * limit;
+    const locale = getLocaleFromRequest(request);
 
     // If requesting a single FAQ by ID
     if (faqId) {
@@ -63,12 +65,16 @@ export async function GET(request: NextRequest) {
         );
       }
 
+      // Apply translations
+      const tFaq = await applyTranslation(faq as any, 'faq', faq.id, locale);
+
       return NextResponse.json({
         success: true,
+        locale,
         faq: {
           id: faq.id,
-          question: faq.question,
-          answer: faq.answer,
+          question: tFaq.question,
+          answer: tFaq.answer,
           order: faq.order,
           createdAt: faq.createdAt.toISOString(),
           updatedAt: faq.updatedAt.toISOString(),
@@ -110,16 +116,23 @@ export async function GET(request: NextRequest) {
       prisma.fAQ.count({ where }),
     ]);
 
+    // Apply translations
+    const tFaqs = await applyTranslationsBatch(faqs as any[], 'faq', 'id', locale);
+
     return NextResponse.json({
       success: true,
-      faqs: faqs.map(faq => ({
-        id: faq.id,
-        question: faq.question,
-        answer: faq.answer,
-        order: faq.order,
-        createdAt: faq.createdAt.toISOString(),
-        updatedAt: faq.updatedAt.toISOString(),
-      })),
+      locale,
+      faqs: faqs.map((faq, i) => {
+        const tFaq = tFaqs[i];
+        return {
+          id: faq.id,
+          question: tFaq.question,
+          answer: tFaq.answer,
+          order: faq.order,
+          createdAt: faq.createdAt.toISOString(),
+          updatedAt: faq.updatedAt.toISOString(),
+        };
+      }),
       pagination: {
         page,
         limit,

@@ -8,6 +8,7 @@ import { getImageUrl } from '@/lib/image-utils';
 import ConfirmModal from '@/app/components/ConfirmModal';
 import NotificationModal from '@/app/components/NotificationModal';
 import RichTextEditor from '@/app/components/RichTextEditor';
+import TranslationEditor from '@/app/components/TranslationEditor';
 
 type Category = {
   id: number;
@@ -50,6 +51,7 @@ export default function MedicinesPage() {
   const [notification, setNotification] = useState<{ title: string; message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
   const [selectedMedicines, setSelectedMedicines] = useState<Set<string>>(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [pendingTranslations, setPendingTranslations] = useState<{locale: string; field: string; value: string}[]>([]);
 
   // Fetch categories and medicines
   useEffect(() => {
@@ -380,6 +382,24 @@ export default function MedicinesPage() {
       } else {
         // Add to local state
         setMedicines([data.medicine, ...medicines]);
+
+        // Save pending translations for new entity
+        if (pendingTranslations.length > 0) {
+          try {
+            await fetch('/api/translations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                entityType: 'medicine',
+                entityId: data.medicine.id,
+                translations: pendingTranslations,
+              }),
+            });
+          } catch (err) {
+            console.error('Failed to save translations:', err);
+          }
+        }
       }
 
       setIsModalOpen(false);
@@ -420,6 +440,7 @@ export default function MedicinesPage() {
     setEditingMedicine(null);
     setImagePreview(null);
     setImageFile(null);
+    setPendingTranslations([]);
     setFormData({
       categoryId: '',
       title: '',
@@ -940,6 +961,18 @@ export default function MedicinesPage() {
                   </select>
                 </div>
               </div>
+
+              {/* Translations */}
+              <TranslationEditor
+                entityType="medicine"
+                entityId={editingMedicine?.id || null}
+                translatableFields={[
+                  { field: 'title', label: 'Title', type: 'text' },
+                  { field: 'tagline', label: 'Tagline', type: 'text' },
+                  { field: 'description', label: 'Description', type: 'richtext' },
+                ]}
+                onTranslationsChange={!editingMedicine ? setPendingTranslations : undefined}
+              />
 
               {/* Form Actions */}
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">

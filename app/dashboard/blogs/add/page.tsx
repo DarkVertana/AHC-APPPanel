@@ -7,6 +7,7 @@ import Link from 'next/link';
 import RichTextEditor from '@/app/components/RichTextEditor';
 import { getImageUrl } from '@/lib/image-utils';
 import NotificationModal from '@/app/components/NotificationModal';
+import TranslationEditor from '@/app/components/TranslationEditor';
 
 export default function AddBlogPage() {
   const router = useRouter();
@@ -22,6 +23,7 @@ export default function AddBlogPage() {
   const [newTagName, setNewTagName] = useState('');
   const [showNotification, setShowNotification] = useState(false);
   const [notification, setNotification] = useState<{ title: string; message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
+  const [pendingTranslations, setPendingTranslations] = useState<{locale: string; field: string; value: string}[]>([]);
 
   const handleAddTag = () => {
     if (newTagName.trim() && !formData.tags.includes(newTagName.trim())) {
@@ -85,6 +87,25 @@ export default function AddBlogPage() {
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to create blog');
+      }
+
+      // Save pending translations for new blog
+      if (pendingTranslations.length > 0) {
+        try {
+          const blogData = await response.json();
+          await fetch('/api/translations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              entityType: 'blog',
+              entityId: blogData.blog?.id || blogData.id,
+              translations: pendingTranslations,
+            }),
+          });
+        } catch (err) {
+          console.error('Failed to save translations:', err);
+        }
       }
 
       router.push('/dashboard/blogs');
@@ -271,6 +292,18 @@ export default function AddBlogPage() {
             </div>
           )}
         </div>
+
+        {/* Translations */}
+        <TranslationEditor
+          entityType="blog"
+          entityId={null}
+          translatableFields={[
+            { field: 'title', label: 'Title', type: 'text' },
+            { field: 'tagline', label: 'Tagline', type: 'text' },
+            { field: 'description', label: 'Description', type: 'richtext' },
+          ]}
+          onTranslationsChange={setPendingTranslations}
+        />
 
         {/* Form Actions */}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
