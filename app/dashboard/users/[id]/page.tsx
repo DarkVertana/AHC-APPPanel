@@ -116,6 +116,33 @@ export default function UserDetailsPage() {
         }
 
         setUser(foundUser);
+
+        // Fetch WooCommerce customer name if not already present
+        if (!foundUser.customerName) {
+          console.log(`[WooCommerce Debug] No customerName cached for ${foundUser.email}, fetching from WooCommerce...`);
+          try {
+            const wooRes = await fetch(`/api/app-users/${foundUser.id}/woo-name`, {
+              credentials: 'include',
+            });
+            const wooData = await wooRes.json();
+
+            // Log all debug info to browser console
+            console.group(`[WooCommerce Debug] Name lookup for ${foundUser.email}`);
+            if (wooData.debug) {
+              wooData.debug.forEach((line: string) => console.log(line));
+            }
+            console.log(`Result: source=${wooData.source}, customerName="${wooData.customerName || '(none)'}"`);
+            console.groupEnd();
+
+            if (wooData.customerName) {
+              setUser((prev) => prev ? { ...prev, customerName: wooData.customerName } : prev);
+            }
+          } catch (wooErr) {
+            console.error('[WooCommerce Debug] Failed to fetch name:', wooErr);
+          }
+        } else {
+          console.log(`[WooCommerce Debug] customerName already present for ${foundUser.email}: "${foundUser.customerName}"`);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred');
         console.error('Error fetching user details:', err);
