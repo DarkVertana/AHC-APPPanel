@@ -258,7 +258,10 @@ export async function getCustomerByEmailCached(
 
   // Step 3: Cache the customer ID and name if found
   if (customer?.id) {
-    const fullName = [customer.first_name, customer.last_name].filter(Boolean).join(' ').trim();
+    // Get name from billing details, fallback to shipping
+    const fullName =
+      [customer.billing?.first_name, customer.billing?.last_name].filter(Boolean).join(' ').trim() ||
+      [customer.shipping?.first_name, customer.shipping?.last_name].filter(Boolean).join(' ').trim();
     await cacheCustomerId(normalizedEmail, customer.id, fullName || undefined);
   }
 

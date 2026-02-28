@@ -92,7 +92,10 @@ export async function GET(request: NextRequest) {
               // Build a map of customerId -> full name
               const nameMap = new Map<number, string>();
               for (const c of customers) {
-                const fullName = [c.first_name, c.last_name].filter(Boolean).join(' ').trim();
+                // Get name from billing details, fallback to shipping
+                const fullName =
+                  [c.billing?.first_name, c.billing?.last_name].filter(Boolean).join(' ').trim() ||
+                  [c.shipping?.first_name, c.shipping?.last_name].filter(Boolean).join(' ').trim();
                 if (fullName && c.id) {
                   nameMap.set(c.id, fullName);
                 }

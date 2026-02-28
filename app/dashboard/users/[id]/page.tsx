@@ -288,9 +288,6 @@ export default function UserDetailsPage() {
             <h4 className="text-3xl font-bold text-[#435970] mb-1">
               {user.customerName || user.name}
             </h4>
-            {user.customerName && (
-              <p className="text-[#7895b3] text-base mb-1">{user.name}</p>
-            )}
             <p className="text-[#7895b3] text-lg mb-3">{user.email}</p>
             <span
               className={`inline-flex px-4 py-2 text-sm font-medium rounded-full ${
