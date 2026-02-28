@@ -40,50 +40,43 @@ export async function POST() {
       return NextResponse.json({ message: 'All users already have names cached', synced: 0, total: 0 });
     }
 
-    const extractName = (c: any): string =>
-      [c.billing?.first_name, c.billing?.last_name].filter(Boolean).join(' ').trim() ||
-      [c.shipping?.first_name, c.shipping?.last_name].filter(Boolean).join(' ').trim();
-
     let synced = 0;
     let notFound = 0;
     let errors = 0;
 
-    // Batch fetch by customer ID (100 per WooCommerce API call)
-    for (let i = 0; i < users.length; i += 100) {
-      const batch = users.slice(i, i + 100);
-      const ids = batch.map(u => u.woocommerceCustomerId!);
-      try {
-        const res = await fetch(
-          `${apiUrl}/customers?include=${ids.join(',')}&per_page=100`,
-          { method: 'GET', headers: authHeaders }
-        );
-        if (res.ok) {
-          const customers = await res.json();
-          if (Array.isArray(customers)) {
-            const nameMap = new Map<number, string>();
-            for (const c of customers) {
-              const name = extractName(c);
-              if (name && c.id) nameMap.set(c.id, name);
+    // Fetch each customer individually by ID (reliable, like the single-user endpoint)
+    // Process 5 at a time to avoid overwhelming WooCommerce API
+    for (let i = 0; i < users.length; i += 5) {
+      const batch = users.slice(i, i + 5);
+      const results = await Promise.allSettled(
+        batch.map(async (user) => {
+          try {
+            const res = await fetch(
+              `${apiUrl}/customers/${user.woocommerceCustomerId}`,
+              { method: 'GET', headers: authHeaders }
+            );
+            if (!res.ok) {
+              errors++;
+              return;
             }
-            for (const user of batch) {
-              const name = nameMap.get(user.woocommerceCustomerId!);
-              if (name) {
-                await prisma.appUser.update({
-                  where: { id: user.id },
-                  data: { wooCustomerName: name },
-                });
-                synced++;
-              } else {
-                notFound++;
-              }
+            const customer = await res.json();
+            const name =
+              [customer.billing?.first_name, customer.billing?.last_name].filter(Boolean).join(' ').trim() ||
+              [customer.shipping?.first_name, customer.shipping?.last_name].filter(Boolean).join(' ').trim();
+            if (name) {
+              await prisma.appUser.update({
+                where: { id: user.id },
+                data: { wooCustomerName: name },
+              });
+              synced++;
+            } else {
+              notFound++;
             }
+          } catch {
+            errors++;
           }
-        } else {
-          errors += batch.length;
-        }
-      } catch {
-        errors += batch.length;
-      }
+        })
+      );
     }
 
     return NextResponse.json({
