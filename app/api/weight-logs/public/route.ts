@@ -104,11 +104,8 @@ export async function POST(request: NextRequest) {
       orderBy: { date: 'desc' },
     });
 
-    // Use previous log weight, or fall back to initialWeight if this is the first log
-    let previousWeight = previousLog?.weight || null;
-    if (previousWeight === null && appUser.initialWeight) {
-      previousWeight = parseFloat(appUser.initialWeight);
-    }
+    // Use previous log weight (null for the first log entry)
+    const previousWeight = previousLog?.weight || null;
 
     const changeRaw = previousWeight !== null ? weightNum - previousWeight : null;
     // Round change to 1 decimal place to avoid floating point precision issues

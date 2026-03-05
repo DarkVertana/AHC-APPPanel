@@ -823,19 +823,23 @@ export default function UserDetailsPage() {
                 <tbody className="divide-y divide-[#dfedfb]">
                   {weightLogs
                     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                    .map((log) => (
-                      <tr key={log.id} className="hover:bg-[#dfedfb]/20 transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-[#435970]">
+                    .map((log) => {
+                      const isInitialLog = log.previousWeight === null && log.change === null;
+                      return (
+                      <tr key={log.id} className={`transition-colors ${isInitialLog ? 'bg-gray-50 text-gray-400' : 'hover:bg-[#dfedfb]/20'}`}>
+                        <td className={`px-6 py-4 whitespace-nowrap text-sm ${isInitialLog ? 'text-gray-400' : 'text-[#435970]'}`}>
                           {new Date(log.date).toLocaleDateString()}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm font-semibold text-[#435970]">{log.weight} lbs</span>
+                          <span className={`text-sm font-semibold ${isInitialLog ? 'text-gray-400' : 'text-[#435970]'}`}>{log.weight} lbs</span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-[#7895b3]">
-                          {log.previousWeight ? `${log.previousWeight} lbs` : 'N/A'}
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                          {isInitialLog ? '-' : log.previousWeight ? `${log.previousWeight} lbs` : 'N/A'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {log.change !== null && log.change !== 0 ? (
+                          {isInitialLog ? (
+                            <span className="text-sm text-gray-400">-</span>
+                          ) : log.change !== null && log.change !== 0 ? (
                             <div className="flex items-center gap-2">
                               {log.changeType === 'decrease' ? (
                                 <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -857,7 +861,11 @@ export default function UserDetailsPage() {
                           )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {log.changeType ? (
+                          {isInitialLog ? (
+                            <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-400">
+                              Initial Weight
+                            </span>
+                          ) : log.changeType ? (
                             <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
                               log.changeType === 'decrease'
                                 ? 'bg-green-100 text-green-700'
@@ -874,7 +882,8 @@ export default function UserDetailsPage() {
                           )}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
