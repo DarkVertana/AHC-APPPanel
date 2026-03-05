@@ -151,20 +151,6 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Update app_user weight
-    try {
-      await prisma.appUser.update({
-        where: { id: appUser.id },
-        data: {
-          weight: weightNum.toString(),
-          weightSet: true,
-        },
-      });
-    } catch (updateError) {
-      // Log but don't fail the request if user update fails
-      console.error('Error updating app user weight:', updateError);
-    }
-
     return NextResponse.json({
       success: true,
       message: 'Weight log created successfully',
