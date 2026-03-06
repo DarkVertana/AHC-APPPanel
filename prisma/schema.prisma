@@ -151,13 +151,7 @@ model AppUser {
   initialWeight     String? // Initial weight when user started
   initialWeightDate String? // Date when initial weight was recorded (ISO 8601)
   weightSet         Boolean @default(false) // Whether weight data has been set
-  tasksToday    Int     @default(0)
-  totalWorkouts Int     @default(0)
-  totalCalories Int     @default(0)
   streak        Int     @default(0)
-
-  // Task tracking (resets daily)
-  taskStatus Json? // { date: "YYYY-MM-DD", tasks: [boolean, boolean, boolean] } - tracks 3 tasks completion for the day
 
   // Status and tracking
   status      String    @default("Active") // Active, Inactive

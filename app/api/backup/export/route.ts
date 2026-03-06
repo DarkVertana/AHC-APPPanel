@@ -351,11 +351,7 @@ export async function GET(request: NextRequest) {
         goal: user.goal,
         initialWeight: user.initialWeight,
         weightSet: user.weightSet,
-        tasksToday: user.tasksToday,
-        totalWorkouts: user.totalWorkouts,
-        totalCalories: user.totalCalories,
         streak: user.streak,
-        taskStatus: user.taskStatus,
         // Status
         status: user.status,
         lastLoginAt: user.lastLoginAt?.toISOString() || null,

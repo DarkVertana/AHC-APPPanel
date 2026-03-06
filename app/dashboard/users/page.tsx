@@ -17,8 +17,6 @@ type User = {
   phone?: string;
   age?: number;
   height?: string;
-  totalWorkouts?: number;
-  totalCalories?: number;
   streak?: number;
 };
 

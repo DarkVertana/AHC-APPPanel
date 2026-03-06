@@ -68,50 +68,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Handle task status tracking (resets daily)
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
-    let taskStatus = user.taskStatus as { date?: string; tasks?: boolean[] } | null;
-    let tasksCompleted = 0;
-
-    // Check if taskStatus exists and is for today
-    if (!taskStatus || taskStatus.date !== today) {
-      // Reset task status for new day
-      taskStatus = {
-        date: today,
-        tasks: [false, false, false], // 3 tasks, all incomplete
-      };
-      
-      // Update user in database with reset task status
-      await prisma.appUser.update({
-        where: { id: user.id },
-        data: {
-          taskStatus: taskStatus,
-          tasksToday: 0,
-        },
-      });
-    } else {
-      // Count completed tasks
-      tasksCompleted = taskStatus.tasks?.filter(Boolean).length || 0;
-      
-      // Update tasksToday if it doesn't match
-      if (user.tasksToday !== tasksCompleted) {
-        await prisma.appUser.update({
-          where: { id: user.id },
-          data: {
-            tasksToday: tasksCompleted,
-          },
-        });
-      }
-    }
-
-    // Return user with updated task status
     return NextResponse.json({
       success: true,
-      user: {
-        ...user,
-        taskStatus: taskStatus,
-        tasksToday: tasksCompleted,
-      },
+      user,
     });
   } catch (error) {
     console.error('Get app user error:', error);

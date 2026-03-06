@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get users with pagination and aggregate stats
-    const [users, total, activeCount, inactiveCount, allFilteredUsers] = await Promise.all([
+    const [users, total, activeCount, inactiveCount] = await Promise.all([
       prisma.appUser.findMany({
         where,
         orderBy: { lastLoginAt: 'desc' },
@@ -54,11 +54,6 @@ export async function GET(request: NextRequest) {
       }),
       prisma.appUser.count({
         where: { ...where, status: 'Inactive' }
-      }),
-      // Get all filtered users for accurate average calculation
-      prisma.appUser.findMany({
-        where,
-        select: { tasksToday: true },
       }),
     ]);
 
@@ -137,14 +132,11 @@ export async function GET(request: NextRequest) {
       initialWeight: user.initialWeight || 'N/A',
       initialWeightDate: user.initialWeightDate || null,
       weightSet: user.weightSet,
-      tasksToday: user.tasksToday,
       joinDate: user.createdAt.toISOString().split('T')[0],
       phone: user.phone,
       age: user.age,
       height: user.height,
       feet: user.feet,
-      totalWorkouts: user.totalWorkouts,
-      totalCalories: user.totalCalories,
       streak: user.streak,
       woocommerceCustomerId: user.woocommerceCustomerId,
     }));
@@ -161,9 +153,6 @@ export async function GET(request: NextRequest) {
         total,
         active: activeCount,
         inactive: inactiveCount,
-        avgTasksToday: allFilteredUsers.length > 0
-          ? (allFilteredUsers.reduce((sum, u) => sum + u.tasksToday, 0) / allFilteredUsers.length).toFixed(1)
-          : '0.0',
       },
     });
   } catch (error) {

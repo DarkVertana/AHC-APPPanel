@@ -21,13 +21,7 @@ type User = {
   age?: number;
   height?: string;
   feet?: string;
-  totalWorkouts?: number;
-  totalCalories?: number;
   streak?: number;
-  taskStatus?: {
-    date: string;
-    tasks: boolean[];
-  };
   woocommerceCustomerId?: number;
 };
 
