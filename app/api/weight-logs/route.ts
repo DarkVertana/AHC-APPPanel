@@ -111,7 +111,7 @@ export async function GET(request: NextRequest) {
             },
           },
         },
-        orderBy: { date: 'desc' },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
         skip,
         take: limit + 1,
       }),
