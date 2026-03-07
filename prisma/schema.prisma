@@ -222,6 +222,10 @@ model Blog {
   featuredImage String
   status        String   @default("published") // published, draft
 
+  // Related medicines shown below the post in the app
+  relatedMedicinesHeading String? // Custom heading for the related medicines section
+  relatedMedicineIds      String[] // Array of Medicine IDs
+
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

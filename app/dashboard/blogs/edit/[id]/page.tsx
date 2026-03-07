@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -9,11 +9,18 @@ import { getImageUrl } from '@/lib/image-utils';
 import NotificationModal from '@/app/components/NotificationModal';
 import TranslationEditor from '@/app/components/TranslationEditor';
 
+interface MedicineOption {
+  id: string;
+  title: string;
+  tagline?: string | null;
+  image?: string | null;
+  category?: { title: string } | null;
+}
+
 export default function EditBlogPage() {
   const router = useRouter();
   const params = useParams();
   const blogId = params?.id as string;
-
 
   const [formData, setFormData] = useState({
     title: '',
@@ -29,6 +36,60 @@ export default function EditBlogPage() {
   const [submitting, setSubmitting] = useState(false);
   const [showNotification, setShowNotification] = useState(false);
   const [notification, setNotification] = useState<{ title: string; message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
+
+  // Related medicines state
+  const [relatedMedicinesHeading, setRelatedMedicinesHeading] = useState('');
+  const [selectedMedicines, setSelectedMedicines] = useState<MedicineOption[]>([]);
+  const [medicineSearch, setMedicineSearch] = useState('');
+  const [medicineResults, setMedicineResults] = useState<MedicineOption[]>([]);
+  const [medicineSearchLoading, setMedicineSearchLoading] = useState(false);
+  const [showMedicineDropdown, setShowMedicineDropdown] = useState(false);
+  const medicineSearchRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (medicineSearchRef.current && !medicineSearchRef.current.contains(e.target as Node)) {
+        setShowMedicineDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Debounced medicine search
+  useEffect(() => {
+    if (!medicineSearch.trim()) {
+      setMedicineResults([]);
+      setShowMedicineDropdown(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setMedicineSearchLoading(true);
+      try {
+        const res = await fetch(`/api/medicines?search=${encodeURIComponent(medicineSearch)}&limit=10`, { credentials: 'include' });
+        const data = await res.json();
+        setMedicineResults((data.medicines || []).filter((m: MedicineOption) => !selectedMedicines.find(s => s.id === m.id)));
+        setShowMedicineDropdown(true);
+      } catch {
+        setMedicineResults([]);
+      } finally {
+        setMedicineSearchLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [medicineSearch, selectedMedicines]);
+
+  const handleSelectMedicine = (medicine: MedicineOption) => {
+    setSelectedMedicines(prev => [...prev, medicine]);
+    setMedicineSearch('');
+    setMedicineResults([]);
+    setShowMedicineDropdown(false);
+  };
+
+  const handleRemoveMedicine = (id: string) => {
+    setSelectedMedicines(prev => prev.filter(m => m.id !== id));
+  };
 
   useEffect(() => {
     const fetchBlog = async () => {
@@ -52,6 +113,31 @@ export default function EditBlogPage() {
             featuredImage: data.blog.featuredImage
           });
           setImagePreview(data.blog.featuredImage);
+          setRelatedMedicinesHeading(data.blog.relatedMedicinesHeading || '');
+
+          // Fetch existing related medicine details if any IDs are saved
+          if (data.blog.relatedMedicineIds && data.blog.relatedMedicineIds.length > 0) {
+            try {
+              const ids: string[] = data.blog.relatedMedicineIds;
+              const medResponses = await Promise.all(
+                ids.map((id: string) => fetch(`/api/medicines/${id}`, { credentials: 'include' }).then(r => r.json()))
+              );
+              const medicines: MedicineOption[] = medResponses
+                .filter(r => r.medicine)
+                .map(r => ({
+                  id: r.medicine.id,
+                  title: r.medicine.title,
+                  tagline: r.medicine.tagline,
+                  image: r.medicine.image,
+                  category: r.medicine.category,
+                }));
+              // Preserve admin-defined order
+              const medicineMap = new Map(medicines.map(m => [m.id, m]));
+              setSelectedMedicines(ids.map(id => medicineMap.get(id)).filter(Boolean) as MedicineOption[]);
+            } catch {
+              // Non-critical — leave empty
+            }
+          }
         }
       } catch (error) {
         console.error('Error fetching blog:', error);
@@ -143,6 +229,8 @@ export default function EditBlogPage() {
         body: JSON.stringify({
           ...formData,
           featuredImage: imageUrl,
+          relatedMedicinesHeading: relatedMedicinesHeading.trim() || null,
+          relatedMedicineIds: selectedMedicines.map(m => m.id),
         }),
       });
 
@@ -350,6 +438,117 @@ export default function EditBlogPage() {
             <p className="text-xs text-[#7895b3] mt-1">
               Current image will be kept if no new image is selected
             </p>
+          )}
+        </div>
+
+        {/* Related Medicines */}
+        <div className="border-t border-gray-200 pt-6">
+          <h4 className="text-base font-semibold text-[#435970] mb-1">Related Medicines</h4>
+          <p className="text-sm text-[#7895b3] mb-4">These medicines will be shown below this post in the app.</p>
+
+          {/* Custom heading */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-[#435970] mb-2">
+              Section Heading
+            </label>
+            <input
+              type="text"
+              value={relatedMedicinesHeading}
+              onChange={(e) => setRelatedMedicinesHeading(e.target.value)}
+              placeholder="e.g. Recommended Medicines, Shop Now..."
+              className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] placeholder:text-[#7895b3]"
+            />
+          </div>
+
+          {/* Medicine search */}
+          <div className="mb-3" ref={medicineSearchRef}>
+            <label className="block text-sm font-medium text-[#435970] mb-2">
+              Search & Add Medicines
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                value={medicineSearch}
+                onChange={(e) => setMedicineSearch(e.target.value)}
+                placeholder="Type to search medicines..."
+                className="w-full px-4 py-2 border border-[#dfedfb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#7895b3] focus:border-transparent text-[#435970] placeholder:text-[#7895b3]"
+              />
+              {medicineSearchLoading && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <svg className="w-4 h-4 text-[#7895b3] animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </div>
+              )}
+              {showMedicineDropdown && medicineResults.length > 0 && (
+                <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-[#dfedfb] rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                  {medicineResults.map(medicine => (
+                    <button
+                      key={medicine.id}
+                      type="button"
+                      onClick={() => handleSelectMedicine(medicine)}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#dfedfb] transition-colors text-left"
+                    >
+                      {medicine.image ? (
+                        <Image src={getImageUrl(medicine.image)} alt={medicine.title} width={32} height={32} className="rounded object-cover flex-shrink-0" unoptimized />
+                      ) : (
+                        <div className="w-8 h-8 rounded bg-[#dfedfb] flex-shrink-0 flex items-center justify-center">
+                          <svg className="w-4 h-4 text-[#7895b3]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                          </svg>
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-[#435970] truncate">{medicine.title}</p>
+                        {medicine.category && <p className="text-xs text-[#7895b3] truncate">{medicine.category.title}</p>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {showMedicineDropdown && !medicineSearchLoading && medicineResults.length === 0 && medicineSearch.trim() && (
+                <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-[#dfedfb] rounded-lg shadow-lg px-4 py-3">
+                  <p className="text-sm text-[#7895b3]">No medicines found</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Selected medicines list */}
+          {selectedMedicines.length > 0 && (
+            <div className="space-y-2">
+              {selectedMedicines.map((medicine, index) => (
+                <div key={medicine.id} className="flex items-center gap-3 p-2.5 bg-[#dfedfb] rounded-lg">
+                  <span className="text-xs text-[#7895b3] w-5 text-center font-medium">{index + 1}</span>
+                  {medicine.image ? (
+                    <Image src={getImageUrl(medicine.image)} alt={medicine.title} width={32} height={32} className="rounded object-cover flex-shrink-0" unoptimized />
+                  ) : (
+                    <div className="w-8 h-8 rounded bg-white flex-shrink-0 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-[#7895b3]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                      </svg>
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[#435970] truncate">{medicine.title}</p>
+                    {medicine.category && <p className="text-xs text-[#7895b3]">{medicine.category.title}</p>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveMedicine(medicine.id)}
+                    className="text-[#7895b3] hover:text-red-500 transition-colors flex-shrink-0"
+                    title="Remove"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {selectedMedicines.length === 0 && (
+            <p className="text-sm text-[#7895b3]">No medicines selected yet.</p>
           )}
         </div>
 

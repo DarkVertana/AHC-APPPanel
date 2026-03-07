@@ -71,6 +71,36 @@ export async function GET(request: NextRequest) {
       // Get the request URL for generating absolute image URLs
       const requestUrl = request.url;
 
+      // Fetch related medicines if any are linked
+      let relatedMedicines: any[] = [];
+      if (blog.relatedMedicineIds && blog.relatedMedicineIds.length > 0) {
+        const medicines = await prisma.medicine.findMany({
+          where: {
+            id: { in: blog.relatedMedicineIds },
+            status: 'active',
+          },
+          select: {
+            id: true,
+            title: true,
+            tagline: true,
+            image: true,
+            price: true,
+            url: true,
+            productType: true,
+            category: { select: { id: true, title: true } },
+          },
+        });
+        // Preserve the admin-defined order
+        const medicineMap = new Map(medicines.map(m => [m.id, m]));
+        relatedMedicines = blog.relatedMedicineIds
+          .map(id => medicineMap.get(id))
+          .filter(Boolean)
+          .map(m => ({
+            ...m,
+            image: m!.image ? getImageUrl(m!.image, requestUrl, true) : null,
+          }));
+      }
+
       // Apply translations
       const tBlog = await applyTranslation(blog as any, 'blog', blog.id, locale);
 
@@ -86,6 +116,10 @@ export async function GET(request: NextRequest) {
           featuredImage: getImageUrl(blog.featuredImage, requestUrl, true), // Force absolute URL for mobile
           createdAt: blog.createdAt.toISOString(),
           updatedAt: blog.updatedAt.toISOString(),
+          relatedMedicines: {
+            heading: blog.relatedMedicinesHeading || null,
+            items: relatedMedicines,
+          },
         },
       });
     }

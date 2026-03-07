@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { title, tagline, description, tags, featuredImage, status } = body;
+    const { title, tagline, description, tags, featuredImage, status, relatedMedicinesHeading, relatedMedicineIds } = body;
 
     // Validate required fields
     if (!title || !tagline || !description || !tags || !Array.isArray(tags) || tags.length === 0 || !featuredImage) {
@@ -119,6 +119,8 @@ export async function POST(request: NextRequest) {
         tags,
         featuredImage,
         status: status || 'published',
+        relatedMedicinesHeading: relatedMedicinesHeading || null,
+        relatedMedicineIds: Array.isArray(relatedMedicineIds) ? relatedMedicineIds : [],
       },
     });
 

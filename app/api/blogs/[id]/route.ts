@@ -58,7 +58,7 @@ export async function PUT(
 
     const { id } = await params;
     const body = await request.json();
-    const { title, tagline, description, tags, featuredImage, status } = body;
+    const { title, tagline, description, tags, featuredImage, status, relatedMedicinesHeading, relatedMedicineIds } = body;
 
     // Check if blog exists
     const existingBlog = await prisma.blog.findUnique({
@@ -104,6 +104,8 @@ export async function PUT(
         ...(tags && { tags }),
         ...(featuredImage && { featuredImage }),
         ...(status && { status }),
+        relatedMedicinesHeading: relatedMedicinesHeading !== undefined ? (relatedMedicinesHeading || null) : undefined,
+        ...(relatedMedicineIds !== undefined && { relatedMedicineIds: Array.isArray(relatedMedicineIds) ? relatedMedicineIds : [] }),
       },
     });
 
