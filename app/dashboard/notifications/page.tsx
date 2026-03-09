@@ -21,6 +21,8 @@ type Notification = {
   sendTotal: number;
   successCount: number;
   failureCount: number;
+  batchSize: number | null;
+  batchDelayMs: number | null;
   createdAt: string;
   updatedAt: string;
 };
