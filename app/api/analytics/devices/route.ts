@@ -15,11 +15,12 @@ export async function GET() {
       );
     }
 
-    // Get all devices with platform and deviceName
+    // Get all devices with platform, deviceName, and appVersion
     const devices = await prisma.userDevice.findMany({
       select: {
         platform: true,
         deviceName: true,
+        appVersion: true,
       },
     });
 
@@ -82,6 +83,31 @@ export async function GET() {
       usersByPlatform.filter((u) => u.platform === 'android').map((u) => u.appUserId)
     );
 
+    // Build app version breakdown per platform
+    const iosVersions: Record<string, number> = {};
+    const androidVersions: Record<string, number> = {};
+
+    for (const device of devices) {
+      const platform = device.platform.toLowerCase();
+      const version = device.appVersion || 'Unknown';
+
+      if (platform === 'ios') {
+        iosVersions[version] = (iosVersions[version] || 0) + 1;
+      } else if (platform === 'android') {
+        androidVersions[version] = (androidVersions[version] || 0) + 1;
+      }
+    }
+
+    // Sort versions descending (newest first), with "Unknown" last
+    const sortVersions = (versions: Record<string, number>) =>
+      Object.entries(versions)
+        .sort(([a], [b]) => {
+          if (a === 'Unknown') return 1;
+          if (b === 'Unknown') return -1;
+          return b.localeCompare(a, undefined, { numeric: true });
+        })
+        .map(([version, count]) => ({ version, count }));
+
     return NextResponse.json({
       totalDevices: devices.length,
       totalUsersWithDevices: usersWithDevices.length,
@@ -96,6 +122,10 @@ export async function GET() {
       byPlatform: {
         ios: { devices: iphone + ipad + otherIos, users: iosUsers.size },
         android: { devices: androidPhone + androidTablet + otherAndroid, users: androidUsers.size },
+      },
+      byAppVersion: {
+        ios: sortVersions(iosVersions),
+        android: sortVersions(androidVersions),
       },
     });
   } catch (error) {

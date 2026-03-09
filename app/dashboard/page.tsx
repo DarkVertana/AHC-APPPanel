@@ -45,6 +45,11 @@ type DeviceTypeEntry = {
   platform: string;
 };
 
+type AppVersionEntry = {
+  version: string;
+  count: number;
+};
+
 type DeviceAnalytics = {
   totalDevices: number;
   totalUsersWithDevices: number;
@@ -52,6 +57,24 @@ type DeviceAnalytics = {
   byPlatform: {
     ios: { devices: number; users: number };
     android: { devices: number; users: number };
+  };
+  byAppVersion: {
+    ios: AppVersionEntry[];
+    android: AppVersionEntry[];
+  };
+};
+
+type EngagementData = {
+  totalUsers: number;
+  medicine: {
+    usersWithAtLeastOne: number;
+    usersWithNone: number;
+    totalShots: number;
+  };
+  weight: {
+    usersWithAdditionalLog: number;
+    usersWithNoAdditionalLog: number;
+    totalAdditionalLogs: number;
   };
 };
 
@@ -94,6 +117,7 @@ export default function DashboardPage() {
   const [chartData, setChartData] = useState<any[]>([]);
   const [deviceData, setDeviceData] = useState<DeviceAnalytics | null>(null);
   const [notifData, setNotifData] = useState<NotificationAnalytics | null>(null);
+  const [engagementData, setEngagementData] = useState<EngagementData | null>(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -208,6 +232,13 @@ export default function DashboardPage() {
             if (notifAnalytics) setNotifData(notifAnalytics);
           })
           .catch(err => console.error('Error fetching notification analytics:', err));
+
+        fetch('/api/analytics/engagement', { credentials: 'include' })
+          .then(res => res.ok ? res.json() : null)
+          .then(engagement => {
+            if (engagement) setEngagementData(engagement);
+          })
+          .catch(err => console.error('Error fetching engagement analytics:', err));
 
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
@@ -425,6 +456,150 @@ export default function DashboardPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* App Version Breakdown */}
+          {deviceData.byAppVersion && (
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* iOS Versions */}
+              <div>
+                <h4 className="text-sm font-semibold text-[#435970] mb-3 flex items-center gap-2">
+                  <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-700">iOS</span>
+                  App Version Distribution
+                </h4>
+                {deviceData.byAppVersion.ios.length === 0 ? (
+                  <p className="text-sm text-[#7895b3]">No iOS version data</p>
+                ) : (
+                  <div className="space-y-2">
+                    {deviceData.byAppVersion.ios.map((entry) => (
+                      <div key={entry.version} className="flex items-center justify-between p-2 bg-blue-50/50 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-[#435970]">v{entry.version}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="w-20 bg-blue-100 rounded-full h-1.5">
+                            <div
+                              className="h-1.5 rounded-full bg-blue-500"
+                              style={{ width: `${deviceData.byPlatform.ios.devices > 0 ? (entry.count / deviceData.byPlatform.ios.devices) * 100 : 0}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-sm font-semibold text-[#435970] w-8 text-right">{entry.count}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Android Versions */}
+              <div>
+                <h4 className="text-sm font-semibold text-[#435970] mb-3 flex items-center gap-2">
+                  <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-700">Android</span>
+                  App Version Distribution
+                </h4>
+                {deviceData.byAppVersion.android.length === 0 ? (
+                  <p className="text-sm text-[#7895b3]">No Android version data</p>
+                ) : (
+                  <div className="space-y-2">
+                    {deviceData.byAppVersion.android.map((entry) => (
+                      <div key={entry.version} className="flex items-center justify-between p-2 bg-green-50/50 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-[#435970]">v{entry.version}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="w-20 bg-green-100 rounded-full h-1.5">
+                            <div
+                              className="h-1.5 rounded-full bg-green-500"
+                              style={{ width: `${deviceData.byPlatform.android.devices > 0 ? (entry.count / deviceData.byPlatform.android.devices) * 100 : 0}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-sm font-semibold text-[#435970] w-8 text-right">{entry.count}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* User Engagement Summary */}
+      {engagementData && (
+        <div className="bg-white rounded-lg p-6 border border-[#dfedfb]">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-3 bg-gradient-to-br from-[#435970] to-[#7895b3] rounded-lg">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-[#435970]">User Engagement Summary</h3>
+              <p className="text-sm text-[#7895b3]">Medicine shots & weight logging activity across {engagementData.totalUsers} users</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Medicine Shots */}
+            <div className="p-4 bg-purple-50/50 rounded-lg border border-purple-100">
+              <h4 className="text-sm font-semibold text-purple-800 mb-3">Medicine Shots</h4>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-purple-700">Logged at least 1 shot</span>
+                  <span className="text-lg font-bold text-purple-800">{engagementData.medicine.usersWithAtLeastOne.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-purple-700">Never logged any shot</span>
+                  <span className="text-lg font-bold text-purple-800">{engagementData.medicine.usersWithNone.toLocaleString()}</span>
+                </div>
+                <div className="w-full bg-purple-100 rounded-full h-2">
+                  <div
+                    className="h-2 rounded-full bg-purple-500"
+                    style={{ width: `${engagementData.totalUsers > 0 ? (engagementData.medicine.usersWithAtLeastOne / engagementData.totalUsers) * 100 : 0}%` }}
+                  ></div>
+                </div>
+                <p className="text-xs text-purple-600">
+                  {engagementData.totalUsers > 0 ? ((engagementData.medicine.usersWithAtLeastOne / engagementData.totalUsers) * 100).toFixed(1) : 0}% of users have logged at least 1 shot
+                </p>
+                <div className="pt-2 border-t border-purple-200">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-purple-700">Total shots logged</span>
+                    <span className="text-lg font-bold text-purple-800">{engagementData.medicine.totalShots.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Weight Logs */}
+            <div className="p-4 bg-teal-50/50 rounded-lg border border-teal-100">
+              <h4 className="text-sm font-semibold text-teal-800 mb-3">Weight Logs</h4>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-teal-700">Logged at least 1 weight</span>
+                  <span className="text-lg font-bold text-teal-800">{engagementData.weight.usersWithAdditionalLog.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-teal-700">Never logged a weight</span>
+                  <span className="text-lg font-bold text-teal-800">{engagementData.weight.usersWithNoAdditionalLog.toLocaleString()}</span>
+                </div>
+                <div className="w-full bg-teal-100 rounded-full h-2">
+                  <div
+                    className="h-2 rounded-full bg-teal-500"
+                    style={{ width: `${engagementData.totalUsers > 0 ? (engagementData.weight.usersWithAdditionalLog / engagementData.totalUsers) * 100 : 0}%` }}
+                  ></div>
+                </div>
+                <p className="text-xs text-teal-600">
+                  {engagementData.totalUsers > 0 ? ((engagementData.weight.usersWithAdditionalLog / engagementData.totalUsers) * 100).toFixed(1) : 0}% of users have logged at least 1 weight (excludes initial weight)
+                </p>
+                <div className="pt-2 border-t border-teal-200">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-teal-700">Total additional weight logs</span>
+                    <span className="text-lg font-bold text-teal-800">{engagementData.weight.totalAdditionalLogs.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
